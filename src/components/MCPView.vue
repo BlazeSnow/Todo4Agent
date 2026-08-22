@@ -49,7 +49,7 @@ async function copyCommand() {
     <v-card variant="outlined" class="mb-4">
       <v-card-title>Agent 客户端配置示例</v-card-title>
       <v-card-text>
-        <pre class="bg-grey-lighten-3 pa-3 rounded"><code>{
+        <pre class="bg-surface-variant pa-3 rounded"><code>{
   "mcpServers": {
     "todo4agent": {
       "command": "todo4agent",
