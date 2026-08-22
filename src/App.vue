@@ -161,6 +161,13 @@ async function loadTasks() {
 
 watch(selectedGroupId, loadTasks)
 
+/** 手动刷新：重载分组与当前视图数据（MCP 等外部修改后同步界面） */
+async function refresh() {
+  await loadGroups()
+  if (selectedGroupId.value != null) await loadTasks()
+  if (currentView.value === 'trash') await loadTrash()
+}
+
 const authReady = computed(() => authState.value !== 'loading')
 
 onMounted(async () => {
@@ -394,7 +401,7 @@ function onGlobalContextMenu(e: MouseEvent) {
         disabled: currentView.value !== 'tasks' || selectedGroupId.value == null,
         action: openCreateTask,
       },
-      { label: '刷新', icon: 'mdi-refresh', action: () => loadGroups() },
+      { label: '刷新', icon: 'mdi-refresh', action: () => refresh() },
     ],
   }
 }
@@ -431,7 +438,7 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           为 Agent 设计的 MCP 任务清单
         </span>
       </v-app-bar-title>
-      <v-btn variant="text" prepend-icon="mdi-refresh" @click="loadGroups">刷新</v-btn>
+      <v-btn variant="text" prepend-icon="mdi-refresh" @click="refresh">刷新</v-btn>
     </v-app-bar>
 
     <v-navigation-drawer
