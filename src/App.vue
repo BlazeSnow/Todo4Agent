@@ -1,0 +1,355 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import GroupSidebar from './components/GroupSidebar.vue'
+import GroupDialog from './components/GroupDialog.vue'
+import TaskDialog from './components/TaskDialog.vue'
+import {
+  createGroup,
+  createTask,
+  deleteGroup,
+  deleteTask,
+  downloadExport,
+  exportDoc,
+  listGroups,
+  listTasks,
+  renameGroup,
+  updateTask,
+} from './api'
+import type { Group, Task, TaskInput } from './types'
+
+const groups = ref<Group[]>([])
+const tasks = ref<Task[]>([])
+const selectedGroupId = ref<number | null>(null)
+const loadingGroups = ref(false)
+const loadingTasks = ref(false)
+const snackbar = ref({ show: false, text: '' })
+
+const taskDialog = ref(false)
+const editingTask = ref<Task | null>(null)
+const groupDialog = ref(false)
+const groupDialogMode = ref<'create' | 'rename'>('create')
+const groupDialogTarget = ref<Group | null>(null)
+const confirmDialog = ref(false)
+const confirmAction = ref<{ type: 'group' | 'task'; id: number } | null>(null)
+
+const selectedGroup = computed(
+  () => groups.value.find((g) => g.id === selectedGroupId.value) ?? null,
+)
+
+function notify(text: string) {
+  snackbar.value = { show: true, text }
+}
+
+async function loadGroups() {
+  loadingGroups.value = true
+  try {
+    groups.value = await listGroups()
+    if (groups.value.length > 0) {
+      if (!groups.value.some((g) => g.id === selectedGroupId.value)) {
+        selectedGroupId.value = groups.value[0].id
+      }
+    } else {
+      selectedGroupId.value = null
+    }
+  } catch (e) {
+    notify((e as Error).message)
+  } finally {
+    loadingGroups.value = false
+  }
+}
+
+async function loadTasks() {
+  if (selectedGroupId.value == null) {
+    tasks.value = []
+    return
+  }
+  loadingTasks.value = true
+  try {
+    tasks.value = await listTasks(selectedGroupId.value)
+  } catch (e) {
+    notify((e as Error).message)
+  } finally {
+    loadingTasks.value = false
+  }
+}
+
+watch(selectedGroupId, loadTasks)
+onMounted(loadGroups)
+
+// ---------- 分组 ----------
+
+function onSelectGroup(id: number) {
+  selectedGroupId.value = id
+}
+
+function openCreateGroup() {
+  groupDialogMode.value = 'create'
+  groupDialogTarget.value = null
+  groupDialog.value = true
+}
+
+function openRenameGroup(group: Group) {
+  groupDialogMode.value = 'rename'
+  groupDialogTarget.value = group
+  groupDialog.value = true
+}
+
+async function onGroupDialogSave(name: string) {
+  try {
+    if (groupDialogMode.value === 'create') {
+      await createGroup(name)
+      notify(`已创建分组：${name}`)
+    } else if (groupDialogTarget.value) {
+      await renameGroup(groupDialogTarget.value.id, name)
+      notify(`已重命名分组：${name}`)
+    }
+    await loadGroups()
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
+function onDeleteGroup(group: Group) {
+  confirmAction.value = { type: 'group', id: group.id }
+  confirmDialog.value = true
+}
+
+// ---------- 任务 ----------
+
+function openCreateTask() {
+  editingTask.value = null
+  taskDialog.value = true
+}
+
+function openEditTask(task: Task) {
+  editingTask.value = task
+  taskDialog.value = true
+}
+
+async function onTaskDialogSave(input: TaskInput) {
+  try {
+    if (editingTask.value) {
+      await updateTask(editingTask.value.id, {
+        group_id: input.group_id,
+        title: input.title,
+        description: input.description,
+        due_at: input.due_at,
+      })
+      notify('任务已更新')
+    } else {
+      await createTask(input)
+      notify('任务已创建')
+    }
+    if (selectedGroupId.value !== input.group_id) {
+      selectedGroupId.value = input.group_id
+    }
+    await loadTasks()
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
+async function onToggleTask(task: Task) {
+  try {
+    await updateTask(task.id, {
+      status: task.status === 'done' ? 'pending' : 'done',
+    })
+    await loadTasks()
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
+function onDeleteTask(task: Task) {
+  confirmAction.value = { type: 'task', id: task.id }
+  confirmDialog.value = true
+}
+
+async function doConfirm() {
+  const action = confirmAction.value
+  if (!action) return
+  try {
+    if (action.type === 'group') {
+      await deleteGroup(action.id)
+      notify('已删除分组')
+      await loadGroups()
+    } else {
+      await deleteTask(action.id)
+      notify('已删除任务')
+      await loadTasks()
+    }
+  } catch (e) {
+    notify((e as Error).message)
+  }
+  confirmAction.value = null
+}
+
+// ---------- 导出 ----------
+
+async function onExport() {
+  try {
+    const doc = await exportDoc()
+    downloadExport(doc)
+    notify('已导出 JSON')
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
+// ---------- 展示辅助 ----------
+
+function formatDue(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  return d.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+function overdue(task: Task): boolean {
+  if (!task.due_at || task.status === 'done') return false
+  const d = new Date(task.due_at)
+  return !isNaN(d.getTime()) && d.getTime() < Date.now()
+}
+</script>
+
+<template>
+  <v-app>
+    <v-app-bar app>
+      <v-app-bar-title>
+        <v-icon icon="mdi-checkbox-marked-circle-outline" class="mr-2" />
+        Todo4Agent
+        <span class="text-body-2 text-medium-emphasis ml-2">
+          为 Agent 设计的 MCP 任务清单
+        </span>
+      </v-app-bar-title>
+      <v-btn variant="text" prepend-icon="mdi-export-variant" @click="onExport">
+        导出 JSON
+      </v-btn>
+      <v-btn variant="text" prepend-icon="mdi-refresh" @click="loadGroups">刷新</v-btn>
+    </v-app-bar>
+
+    <v-navigation-drawer app width="280">
+      <GroupSidebar
+        :groups="groups"
+        :selected-id="selectedGroupId"
+        :loading="loadingGroups"
+        @select="onSelectGroup"
+        @create="openCreateGroup"
+        @rename="openRenameGroup"
+        @delete="onDeleteGroup"
+      />
+    </v-navigation-drawer>
+
+    <v-main>
+      <v-container fluid class="pa-4">
+        <div class="d-flex align-center mb-4">
+          <v-icon icon="mdi-folder-outline" class="mr-2" />
+          <h2 class="text-h6">{{ selectedGroup?.name ?? '未选择分组' }}</h2>
+          <v-spacer />
+          <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateTask">
+            新建任务
+          </v-btn>
+        </div>
+
+        <v-alert v-if="!selectedGroup" type="info" text="请先在左侧创建分组" />
+
+        <v-progress-linear v-if="loadingTasks" indeterminate class="mb-4" />
+
+        <v-card
+          v-for="task in tasks"
+          :key="task.id"
+          class="mb-2"
+          variant="outlined"
+          :class="{ 'opacity-60': task.status === 'done' }"
+        >
+          <v-list-item>
+            <template #prepend>
+              <v-checkbox-btn
+                :model-value="task.status === 'done'"
+                color="success"
+                @update:model-value="onToggleTask(task)"
+              />
+            </template>
+            <v-list-item-title
+              :class="{ 'text-decoration-line-through': task.status === 'done' }"
+            >
+              {{ task.title }}
+            </v-list-item-title>
+            <v-list-item-subtitle v-if="task.description" class="text-pre-wrap">
+              {{ task.description }}
+            </v-list-item-subtitle>
+            <v-list-item-subtitle v-if="task.due_at" class="mt-1">
+              <v-chip
+                size="small"
+                variant="tonal"
+                :color="overdue(task) ? 'error' : 'default'"
+              >
+                <v-icon start icon="mdi-calendar" size="small" />
+                {{ formatDue(task.due_at) }}
+              </v-chip>
+            </v-list-item-subtitle>
+            <template #append>
+              <v-btn
+                icon="mdi-pencil"
+                size="small"
+                variant="text"
+                @click="openEditTask(task)"
+              />
+              <v-btn
+                icon="mdi-delete"
+                size="small"
+                variant="text"
+                color="error"
+                @click="onDeleteTask(task)"
+              />
+            </template>
+          </v-list-item>
+        </v-card>
+
+        <v-empty
+          v-if="!loadingTasks && selectedGroup && tasks.length === 0"
+          icon="mdi-inbox-outline"
+          title="暂无任务"
+          text="点击右上角「新建任务」，或让 Agent 通过 MCP 添加"
+        />
+      </v-container>
+    </v-main>
+
+    <TaskDialog v-model="taskDialog" :task="editingTask" :groups="groups" @save="onTaskDialogSave" />
+    <GroupDialog
+      v-model="groupDialog"
+      :mode="groupDialogMode"
+      :group="groupDialogTarget"
+      @save="onGroupDialogSave"
+    />
+
+    <v-dialog v-model="confirmDialog" max-width="420">
+      <v-card>
+        <v-card-title>确认删除</v-card-title>
+        <v-card-text>
+          {{
+            confirmAction?.type === 'group'
+              ? '删除后该分组下的任务将一并删除，且不可恢复。确定继续吗？'
+              : '删除后不可恢复，确定继续吗？'
+          }}
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="confirmDialog = false">取消</v-btn>
+          <v-btn
+            color="error"
+            @click="
+              confirmDialog = false;
+              doConfirm()
+            "
+          >
+            删除
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-snackbar v-model="snackbar.show" :timeout="3000" location="bottom">
+      {{ snackbar.text }}
+    </v-snackbar>
+  </v-app>
+</template>

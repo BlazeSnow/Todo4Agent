@@ -1,0 +1,23 @@
+[package]
+name = "todo4agent"
+version = "1.0.0"
+description = "为Agent设计的MCP任务清单，附带UI界面。"
+authors = ["BlazeSnow"]
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = { version = "0.8", default-features = false, features = ["form", "http1", "json", "matched-path", "original-uri", "query", "tokio", "tower-log"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+tower-http = { version = "0.6", features = ["fs"] }
+tower = { version = "0.5", features = ["util"] }
+chrono = { version = "0.4" }
+dirs = "6"
+rust-embed = { version = "8", features = ["mime-guess"] }

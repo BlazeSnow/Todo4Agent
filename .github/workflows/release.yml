@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+          - platform: ubuntu-22.04
+          - platform: windows-latest
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # beforeBuildCommand 会先执行 pnpm build（Vite），再编译并打包 Tauri
+      - name: Build and bundle
+        run: pnpm tauri build
+
+      - name: Upload artifacts to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"
+          if [[ "$tag" == *"-beta"* ]]; then prerelease="true"; else prerelease="false"; fi
+          artifacts=$(find src-tauri/target/release/bundle -type f \( -name '*.msi' -o -name '*.exe' \
+            -o -name '*.dmg' -o -name '*.app' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' \))
+          if [ -z "$artifacts" ]; then
+            echo "未找到打包产物"
+            exit 1
+          fi
+          # beta 版以 Prerelease 发布；Release 已存在时只补充上传产物
+          gh release create "$tag" $artifacts \
+            --title "Todo4Agent $tag" --generate-notes --prerelease="$prerelease" \
+            || gh release upload "$tag" $artifacts --clobber

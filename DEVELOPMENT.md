@@ -11,7 +11,7 @@
 | 后端    | Rust（stable） | Tauri 逻辑、SQLite 数据层、MCP Server      |
 | 前端    | Vue 3 + Vite   | 桌面与 WebUI 共用同一套前端                |
 | UI 组件 | Vuetify        | 侧边栏分组、任务列表等                     |
-| 数据库  | SQLite（本地） | 通过 `tauri-plugin-sql`（或 rusqlite）访问 |
+| 数据库  | SQLite（本地） | rusqlite 直接访问（bundled，无需单独安装） |
 | 协议    | MCP（stdio）   | 供 Agent 连接操作任务清单                  |
 
 ## 2. 开发环境
@@ -44,17 +44,16 @@
 ```
 Todo4Agent/
 ├── src/                    # Vue 3 前端（桌面与 WebUI 共用）
-│   ├── api/                # 调用后端的封装（tauri invoke / HTTP）
-│   ├── components/
-│   ├── views/
-│   ├── plugins/vuetify.ts
+│   ├── api.ts              # 后端 HTTP API 封装
+│   ├── components/         # 侧边栏、任务/分组对话框
+│   ├── types.ts
 │   └── main.ts
 ├── src-tauri/              # Rust 后端（Tauri 2）
 │   ├── src/
-│   │   ├── main.rs
-│   │   ├── db.rs           # SQLite 初始化与访问
-│   │   ├── mcp.rs          # MCP Server（stdio）
-│   │   └── commands.rs     # tauri 命令（导出 JSON 等）
+│   │   ├── main.rs         # 入口：tauri / serve / mcp 三模式
+│   │   ├── db.rs           # SQLite 数据层（建表、默认分组、导出）
+│   │   ├── api.rs          # axum HTTP API + 内嵌 WebUI 静态资源
+│   │   └── mcp.rs          # MCP Server（stdio）
 │   ├── capabilities/
 │   └── tauri.conf.json
 ├── .github/workflows/      # 打包发布流水线
@@ -67,16 +66,21 @@ Todo4Agent/
 | 命令                         | 作用                                              |
 | ---------------------------- | ------------------------------------------------- |
 | `pnpm install`               | 安装前端依赖                                      |
-| `pnpm dev`                   | 纯 Web 模式启动 Vite，**监听 3000 端口（WebUI）** |
-| `pnpm tauri dev`             | 桌面开发模式                                      |
+| `pnpm dev`                   | 纯 Web 模式启动 Vite（端口 3001，`/api` 代理到 127.0.0.1:3000） |
+| `pnpm backend`               | headless 后端：Rust HTTP 服务 + WebUI（端口 3000） |
+| `pnpm mcp`                   | 启动 MCP stdio 服务（供 Agent 连接，等价于 `todo4agent mcp`） |
+| `pnpm tauri dev`             | 桌面开发模式（后端 3000 + 窗口加载 Vite 3001）      |
 | `pnpm tauri build`           | 打包当前平台安装包                                |
 | `cargo test`（src-tauri 下） | 运行 Rust 单元测试                                |
 
-WebUI 与桌面端必须共享同一套功能与数据，禁止出现两套业务逻辑。Vite 的 `server.port` 固定为 3000。
+WebUI 与桌面端必须共享同一套功能与数据，禁止出现两套业务逻辑。后端 HTTP 服务固定监听
+3000 端口（被占用时顺延至 3010），生产环境 WebUI 即该端口；开发环境 Vite 监听 3001，
+将 `/api` 代理到后端。桌面端窗口在开发模式加载 Vite（3001），生产模式加载后端 WebUI（3000）。
 
 ## 6. 数据库设计（草案）
 
-数据库文件位于 Tauri 的 app data 目录，首次启动自动建表、播种默认分组。
+数据库文件位于平台数据目录（Windows 为 `%LOCALAPPDATA%\Todo4Agent\todo.db`），
+可用环境变量 `TODO4AGENT_DB` 指定其他位置；首次启动自动建表、播种默认分组。
 
 ```sql
 CREATE TABLE groups (
@@ -139,7 +143,7 @@ CREATE TABLE tasks (
 
 ## 9. 开发里程碑
 
-1. 初始化 Tauri 2 + Vue 3 + Vuetify 工程，Vite 绑定 3000 端口。
+1. 初始化 Tauri 2 + Vue 3 + Vuetify 工程，后端绑定 3000 端口、Vite dev 3001。
 2. 实现 SQLite 数据层（建表、默认分组「快速清单」）及单元测试。
 3. 任务清单界面：侧边栏分组管理、任务增删改查、完成状态。
 4. WebUI（3000 端口）与桌面端功能对齐。
