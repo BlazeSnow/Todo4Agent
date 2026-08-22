@@ -17,6 +17,7 @@ pub async fn auth_status(
     let c = st.db.lock().unwrap();
     let users_exist = db::user_count(&c).unwrap_or(0) > 0;
     let has_default_password = db::has_default_password_user(&c).unwrap_or(false);
+    let allow_register = db::get_allow_register(&c).unwrap_or(true);
     let username = match cur.0 {
         Some(uid) => db::list_users(&c)
             .ok()
@@ -28,7 +29,8 @@ pub async fn auth_status(
         "mode": if users_exist { "users" } else { "local" },
         "user_id": cur.0,
         "username": username,
-        "default_password": has_default_password
+        "default_password": has_default_password,
+        "allow_register": allow_register
     }))
 }
 
@@ -70,6 +72,9 @@ pub async fn auth_register(
         return err(StatusCode::BAD_REQUEST, "密码至少 4 位");
     }
     let c = st.db.lock().unwrap();
+    if !db::get_allow_register(&c).unwrap_or(true) {
+        return err(StatusCode::FORBIDDEN, "注册已关闭");
+    }
     match db::create_user(&c, username, &body.password) {
         Ok(user) => {
             let token = st.sessions.issue(&c, user.id);

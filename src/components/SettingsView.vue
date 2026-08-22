@@ -73,6 +73,44 @@ function onPickImport() {
   input.click()
 }
 
+// ---------- 服务开关 ----------
+
+const webuiLan = ref(true)
+const allowRegister = ref(true)
+const savingWebui = ref(false)
+const savingRegister = ref(false)
+
+/** 对外访问开关：立即保存，重启应用后对监听地址生效 */
+async function onWebuiChange() {
+  savingWebui.value = true
+  try {
+    await updateSettings({ webui_lan: webuiLan.value })
+    emit(
+      'notify',
+      webuiLan.value ? '已开启对外访问，重启应用后生效' : '已切换为仅本机访问，重启应用后生效',
+    )
+  } catch (e) {
+    webuiLan.value = !webuiLan.value
+    emit('error', (e as Error).message)
+  } finally {
+    savingWebui.value = false
+  }
+}
+
+/** 允许注册开关：立即生效 */
+async function onRegisterChange() {
+  savingRegister.value = true
+  try {
+    await updateSettings({ allow_register: allowRegister.value })
+    emit('notify', allowRegister.value ? '已允许注册新账号' : '已关闭注册')
+  } catch (e) {
+    allowRegister.value = !allowRegister.value
+    emit('error', (e as Error).message)
+  } finally {
+    savingRegister.value = false
+  }
+}
+
 // ---------- 服务端口 ----------
 
 const effectivePort = ref<number | null>(null)
@@ -89,6 +127,8 @@ onMounted(async () => {
     const s = await getSettings()
     effectivePort.value = s.effective_port
     portInput.value = String(s.port)
+    webuiLan.value = s.webui_lan
+    allowRegister.value = s.allow_register
   } catch (e) {
     emit('error', (e as Error).message)
   }
@@ -98,7 +138,7 @@ async function savePort() {
   if (!portValid.value) return
   savingPort.value = true
   try {
-    await updateSettings(Number(portInput.value))
+    await updateSettings({ port: Number(portInput.value) })
     emit('notify', '端口已保存，重启应用后生效')
   } catch (e) {
     emit('error', (e as Error).message)
@@ -137,6 +177,18 @@ async function changePassword() {
     <v-card variant="outlined" class="mb-4">
       <v-card-title>服务</v-card-title>
       <v-card-text>
+        <v-switch
+          v-model="webuiLan"
+          color="primary"
+          label="允许局域网访问 WebUI（监听 0.0.0.0）"
+          :loading="savingWebui"
+          hide-details
+          class="mb-1"
+          @change="onWebuiChange"
+        />
+        <p class="text-caption text-medium-emphasis mb-3">
+          关闭后仅本机可访问；修改需重启应用生效
+        </p>
         <div v-if="effectivePort != null" class="text-body-2 mb-3">
           当前监听端口：<span class="font-mono">{{ effectivePort }}</span>
         </div>
@@ -162,6 +214,18 @@ async function changePassword() {
     <v-card variant="outlined" class="mb-4">
       <v-card-title>用户</v-card-title>
       <v-card-text>
+        <v-switch
+          v-model="allowRegister"
+          color="primary"
+          label="允许注册新账号"
+          :loading="savingRegister"
+          hide-details
+          class="mb-1"
+          @change="onRegisterChange"
+        />
+        <p class="text-caption text-medium-emphasis mb-3">
+          关闭后登录页不再显示注册入口；立即生效
+        </p>
         <div class="d-flex align-center mb-3">
           <v-icon icon="mdi-account-circle" class="mr-2" color="primary" />
           <span class="text-body-1">当前用户：{{ currentUser ?? '未登录（本地模式）' }}</span>

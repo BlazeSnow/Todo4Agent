@@ -42,26 +42,49 @@ pub async fn import_json(
 
 pub async fn get_settings(State(st): State<SharedState>) -> ApiResult {
     let c = st.db.lock().unwrap();
-    let port = db::get_port_setting(&c).unwrap_or(db::DEFAULT_PORT);
     ok_json(json!({
-        "port": port,
-        "effective_port": st.effective_port
+        "port": db::get_port_setting(&c).unwrap_or(db::DEFAULT_PORT),
+        "effective_port": st.effective_port,
+        "webui_lan": db::get_webui_lan(&c).unwrap_or(true),
+        "allow_register": db::get_allow_register(&c).unwrap_or(true)
     }))
 }
 
-#[derive(Deserialize)]
-pub struct PortInput {
-    port: u16,
+#[derive(Deserialize, Default)]
+pub struct SettingsInput {
+    port: Option<u16>,
+    webui_lan: Option<bool>,
+    allow_register: Option<bool>,
 }
 
-/// 保存端口配置（重启应用后生效）
-pub async fn update_settings(State(st): State<SharedState>, Json(body): Json<PortInput>) -> ApiResult {
-    if !(1024..=65535).contains(&body.port) {
-        return err(StatusCode::BAD_REQUEST, "端口范围：1024-65535");
+/// 保存服务设置：只更新传入的字段（webui_lan 重启后生效，其余立即生效）
+pub async fn update_settings(State(st): State<SharedState>, Json(body): Json<SettingsInput>) -> ApiResult {
+    if let Some(p) = body.port {
+        if !(1024..=65535).contains(&p) {
+            return err(StatusCode::BAD_REQUEST, "端口范围：1024-65535");
+        }
     }
     let c = st.db.lock().unwrap();
-    match db::set_setting(&c, db::SETTINGS_PORT_KEY, &body.port.to_string()) {
-        Ok(()) => ok_json(json!({ "port": body.port })),
-        Err(e) => internal(e),
+    if let Some(p) = body.port {
+        if let Err(e) = db::set_setting(&c, db::SETTINGS_PORT_KEY, &p.to_string()) {
+            return internal(e);
+        }
     }
+    if let Some(v) = body.webui_lan {
+        if let Err(e) = db::set_setting(&c, db::SETTINGS_WEBUI_LAN_KEY, if v { "1" } else { "0" })
+        {
+            return internal(e);
+        }
+    }
+    if let Some(v) = body.allow_register {
+        if let Err(e) = db::set_setting(&c, db::SETTINGS_ALLOW_REGISTER_KEY, if v { "1" } else { "0" })
+        {
+            return internal(e);
+        }
+    }
+    ok_json(json!({
+        "port": db::get_port_setting(&c).unwrap_or(db::DEFAULT_PORT),
+        "webui_lan": db::get_webui_lan(&c).unwrap_or(true),
+        "allow_register": db::get_allow_register(&c).unwrap_or(true)
+    }))
 }
