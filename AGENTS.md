@@ -30,3 +30,9 @@
 
 1. 软件采用本地sqlite数据库
 2. 支持将任务清单导出为json文件
+
+## 发布
+
+1. 软件使用GitHub action进行打包
+2. 发布至GitHub release
+3. 支持beta版本
