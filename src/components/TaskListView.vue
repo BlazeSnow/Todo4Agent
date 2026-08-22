@@ -115,7 +115,7 @@ function overdue(task: Task): boolean {
             />
           </v-list>
         </v-menu>
-        <v-btn color="accentDeep" prepend-icon="mdi-plus" @click="$emit('create')">
+        <v-btn color="primary" prepend-icon="mdi-plus" @click="$emit('create')">
           新建任务
         </v-btn>
       </div>
@@ -270,7 +270,7 @@ function overdue(task: Task): boolean {
   height: 18px;
   margin-top: 3px;
   cursor: pointer;
-  accent-color: #03fc8c;
+  accent-color: #00a862;
 }
 
 .task-main {
