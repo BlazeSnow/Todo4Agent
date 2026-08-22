@@ -54,6 +54,11 @@ pub(super) fn tools() -> Vec<ToolDef> {
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
+            "app_release",
+            "查询应用发布页地址（GitHub Releases）",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        ToolDef::new(
             "group_list",
             "列出所有任务分组",
             json!({ "type": "object", "properties": {} }),
@@ -153,6 +158,16 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
         "app_version" => tool_result(
             id,
             json!({ "name": "todo4agent", "version": env!("CARGO_PKG_VERSION") }).to_string(),
+        ),
+
+        "app_release" => tool_result(
+            id,
+            json!({
+                "name": "todo4agent",
+                "version": env!("CARGO_PKG_VERSION"),
+                "release_url": "https://github.com/BlazeSnow/Todo4Agent/releases"
+            })
+            .to_string(),
         ),
 
         "group_list" => match db::list_groups(conn, user_id) {
@@ -313,5 +328,6 @@ mod tests {
     #[test]
     fn app_version_tool_defined() {
         assert!(tools().iter().any(|t| t.name == "app_version"));
+        assert!(tools().iter().any(|t| t.name == "app_release"));
     }
 }
