@@ -8,7 +8,7 @@
 - 回收站：误删可恢复
 - 多用户：每人的任务数据互相独立
 - 导入 / 导出 JSON，方便备份与迁移
-- 桌面应用（Windows / macOS / Linux）与浏览器 WebUI（默认 http://127.0.0.1:3000）
+- 桌面应用（Windows / macOS / Linux）与浏览器 WebUI（默认 <http://127.0.0.1:3000）>
 
 ## 安装
 
