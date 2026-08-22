@@ -434,7 +434,7 @@ async fn auth_login(
     let c = st.db.lock().unwrap();
     match db::verify_user(&c, &body.username, &body.password) {
         Ok(Some(user)) => {
-            let token = st.sessions.issue(user.id);
+            let token = st.sessions.issue(&c, user.id);
             ok_json(json!({
                 "token": token,
                 "user_id": user.id,
@@ -461,7 +461,7 @@ async fn auth_register(
     let c = st.db.lock().unwrap();
     match db::create_user(&c, username, &body.password) {
         Ok(user) => {
-            let token = st.sessions.issue(user.id);
+            let token = st.sessions.issue(&c, user.id);
             ok_json(json!({
                 "token": token,
                 "user_id": user.id,
@@ -473,10 +473,11 @@ async fn auth_register(
     }
 }
 
-/// 登出：撤销当前 token
+/// 登出：撤销当前 token（含数据库会话）
 async fn auth_logout(State(st): State<SharedState>, headers: HeaderMap) -> ApiResult {
     if let Some(t) = bearer_token(&headers) {
-        st.sessions.revoke(t);
+        let c = st.db.lock().unwrap();
+        st.sessions.revoke(&c, t);
     }
     ok_json(json!({ "ok": true }))
 }
@@ -636,10 +637,12 @@ pub fn serve_blocking() {
         let preferred = db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT);
         let (listener, port) = bind_tokio(preferred).await.expect("绑定端口失败");
         println!("Todo4Agent WebUI: http://127.0.0.1:{port}");
+        let sessions = auth::Sessions::default();
+        sessions.load_from_db(&conn);
         let state = Arc::new(AppState {
             db: Mutex::new(conn),
             effective_port: port,
-            sessions: auth::Sessions::default(),
+            sessions,
         });
         if let Err(e) = axum::serve(listener, app(state)).await {
             eprintln!("HTTP 服务错误: {e}");
@@ -658,10 +661,12 @@ pub fn spawn_server() -> u16 {
             let (listener, port) = bind_tokio(preferred).await.expect("绑定端口失败");
             println!("Todo4Agent WebUI: http://127.0.0.1:{port}");
             let _ = tx.send(port);
+            let sessions = auth::Sessions::default();
+            sessions.load_from_db(&conn);
             let state = Arc::new(AppState {
                 db: Mutex::new(conn),
                 effective_port: port,
-                sessions: auth::Sessions::default(),
+                sessions,
             });
             if let Err(e) = axum::serve(listener, app(state)).await {
                 eprintln!("HTTP 服务错误: {e}");
