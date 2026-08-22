@@ -48,7 +48,8 @@ jobs:
     - name: Install frontend dependencies
       run: pnpm install --frozen-lockfile
 
-    # beforeBuildCommand 会先执行 pnpm build（Vite），再编译并打包 Tauri
+    # beforeBuildCommand 会先执行 pnpm build（Vite），再编译并打包 Tauri。
+    # Windows MSI 的版本由 tauri.conf.json > bundle.windows.wix.version 单独指定（数字格式）
     - name: Build and bundle
       run: pnpm tauri build
 

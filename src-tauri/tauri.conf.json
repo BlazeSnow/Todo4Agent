@@ -24,6 +24,11 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "wix": {
+        "version": "1.0.0.1"
+      }
+    }
   }
 }
