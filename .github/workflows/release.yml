@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+    - 'v*'
 
 permissions:
   contents: write
@@ -14,46 +14,52 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-          - platform: ubuntu-24.04
-          - platform: windows-latest
+        - platform: macos-latest
+        - platform: ubuntu-24.04
+        - platform: windows-latest
+
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v7
+    - uses: actions/checkout@v7
 
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-24.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+    - name: Install Linux dependencies
+      if: matrix.platform == 'ubuntu-24.04'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
+    - name: Setup Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 26
 
-      - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v6
+      with:
+        version: 11
 
-      # beforeBuildCommand 会先执行 pnpm build（Vite），再编译并打包 Tauri
-      - name: Build and bundle
-        run: pnpm tauri build
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: swatinem/rust-cache@v2
+      with:
+        workspaces: src-tauri
 
-      - name: Create or update GitHub Release
-        uses: ncipollo/release-action@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ github.ref_name }}
-          name: Todo4Agent ${{ github.ref_name }}
-          prerelease: ${{ contains(github.ref_name, '-beta') }}
-          generateReleaseNotes: true
-          # 多平台并行构建：release 可能已被其他平台创建，允许更新并替换产物
-          allowUpdates: true
-          replacesArtifacts: true
-          artifactErrorsFailBuild: false
-          artifacts: "src-tauri/target/release/bundle/**/*.msi,src-tauri/target/release/bundle/**/*.exe,src-tauri/target/release/bundle/**/*.dmg,src-tauri/target/release/bundle/**/*.deb,src-tauri/target/release/bundle/**/*.AppImage,src-tauri/target/release/bundle/**/*.rpm"
+    - name: Install frontend dependencies
+      run: pnpm install --frozen-lockfile
+
+    # beforeBuildCommand 会先执行 pnpm build（Vite），再编译并打包 Tauri
+    - name: Build and bundle
+      run: pnpm tauri build
+
+    - name: Create or update GitHub Release
+      uses: ncipollo/release-action@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        tag: ${{ github.ref_name }}
+        name: Todo4Agent ${{ github.ref_name }}
+        prerelease: ${{ contains(github.ref_name, '-beta') }}
+        generateReleaseNotes: true
+        # 多平台并行构建：release 可能已被其他平台创建，允许更新并替换产物
+        allowUpdates: true
+        replacesArtifacts: true
+        artifactErrorsFailBuild: false
+        artifacts: "src-tauri/target/release/bundle/**/*.msi,src-tauri/target/release/bundle/**/*.exe,src-tauri/target/release/bundle/**/*.dmg,src-tauri/target/release/bundle/**/*.deb,src-tauri/target/release/bundle/**/*.AppImage,src-tauri/target/release/bundle/**/*.rpm"
