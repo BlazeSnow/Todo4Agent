@@ -16,7 +16,6 @@ import {
   listGroups,
   listTasks,
   renameGroup,
-  reorderTasks,
   updateTask,
 } from './api'
 import type { Group, Task, TaskInput } from './types'
@@ -180,17 +179,6 @@ function onDeleteTask(task: Task) {
   confirmDialog.value = true
 }
 
-/** 拖拽重排后持久化顺序 */
-async function onReorderTasks(taskIds: number[]) {
-  if (selectedGroupId.value == null) return
-  try {
-    await reorderTasks(selectedGroupId.value, taskIds)
-  } catch (e) {
-    notify((e as Error).message)
-  }
-  await loadTasks()
-}
-
 const confirmMessage = computed(() =>
   confirmAction.value?.type === 'group'
     ? '删除后该分组下的任务将一并删除，且不可恢复。确定继续吗？'
@@ -279,7 +267,6 @@ function notifyExported() {
           @edit="openEditTask"
           @toggle="onToggleTask"
           @remove="onDeleteTask"
-          @reorder="onReorderTasks"
         />
         <SettingsView
           v-else-if="currentView === 'settings'"

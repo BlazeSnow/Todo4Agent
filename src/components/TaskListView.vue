@@ -14,17 +14,18 @@ const emit = defineEmits<{
   (e: 'edit', task: Task): void
   (e: 'toggle', task: Task): void
   (e: 'remove', task: Task): void
-  (e: 'reorder', taskIds: number[]): void
 }>()
 
 // ---------- 排序 ----------
 
-type SortMode = 'manual' | 'time' | 'title'
+type SortMode = 'time' | 'title'
 
-const sortMode = ref<SortMode>('manual')
-const sortModeLabel = computed(
-  () => ({ manual: '手动排序', time: '按截止时间', title: '按标题' })[sortMode.value],
-)
+/** null 表示默认顺序（后端返回的原始顺序） */
+const sortMode = ref<SortMode | null>(null)
+const sortModeLabel = computed(() => {
+  if (sortMode.value === null) return '默认顺序'
+  return sortMode.value === 'time' ? '按截止时间' : '按标题'
+})
 
 /** 按当前排序模式展示的任务列表（不修改原始数组） */
 const displayedTasks = computed<Task[]>(() => {
@@ -43,39 +44,12 @@ const displayedTasks = computed<Task[]>(() => {
   return list
 })
 
-// ---------- 拖拽重排（仅手动排序模式） ----------
-
-const draggingId = ref<number | null>(null)
-const overId = ref<number | null>(null)
-
-function onDragStart(task: Task, e: DragEvent) {
-  if (sortMode.value !== 'manual') return
-  draggingId.value = task.id
-  if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', String(task.id))
-  }
-}
-
-function onDrop(task: Task) {
-  const from = draggingId.value
-  if (from == null || from === task.id) return
-  const list = [...props.tasks]
-  const fromIdx = list.findIndex((t) => t.id === from)
-  const toIdx = list.findIndex((t) => t.id === task.id)
-  if (fromIdx < 0 || toIdx < 0) return
-  const [item] = list.splice(fromIdx, 1)
-  list.splice(fromIdx < toIdx ? toIdx - 1 : toIdx, 0, item)
-  emit('reorder', list.map((t) => t.id))
-}
-
-function onDragEnd() {
-  draggingId.value = null
-  overId.value = null
+/** 点击已选中的排序项时恢复默认顺序 */
+function toggleSort(mode: SortMode) {
+  sortMode.value = sortMode.value === mode ? null : mode
 }
 
 const sortOptions: { value: SortMode; label: string }[] = [
-  { value: 'manual', label: '手动排序' },
   { value: 'time', label: '按截止时间' },
   { value: 'title', label: '按标题' },
 ]
@@ -100,7 +74,7 @@ const sortOptions: { value: SortMode; label: string }[] = [
             :key="opt.value"
             :title="opt.label"
             :active="sortMode === opt.value"
-            @click="sortMode = opt.value"
+            @click="toggleSort(opt.value)"
           />
         </v-list>
       </v-menu>
@@ -119,16 +93,7 @@ const sortOptions: { value: SortMode; label: string }[] = [
       :key="task.id"
       class="mb-2"
       variant="outlined"
-      :class="{
-        'opacity-60': task.status === 'done',
-        'drag-target': overId === task.id && draggingId !== task.id,
-        'dragging': draggingId === task.id,
-      }"
-      :draggable="sortMode === 'manual'"
-      @dragstart="onDragStart(task, $event)"
-      @dragover.prevent="overId = task.id"
-      @drop.prevent="onDrop(task)"
-      @dragend="onDragEnd"
+      :class="{ 'opacity-60': task.status === 'done' }"
     >
       <v-list-item>
         <template #prepend>
@@ -173,13 +138,3 @@ const sortOptions: { value: SortMode; label: string }[] = [
     />
   </div>
 </template>
-
-<style scoped>
-.dragging {
-  opacity: 0.4;
-}
-.drag-target {
-  outline: 2px dashed rgb(var(--v-theme-primary));
-  outline-offset: -2px;
-}
-</style>
