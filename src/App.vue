@@ -397,7 +397,7 @@ async function onImported() {
         />
       </template>
       <v-app-bar-title>
-        <v-icon icon="mdi-checkbox-marked-circle-outline" class="mr-2" />
+        <img src="/icon.svg" alt="Todo4Agent" class="app-logo" />
         Todo4Agent
         <span class="text-body-2 text-medium-emphasis ml-2">
           为 Agent 设计的 MCP 任务清单
@@ -487,3 +487,12 @@ async function onImported() {
     </template>
   </v-app>
 </template>
+
+<style scoped>
+.app-logo {
+  width: 24px;
+  height: 24px;
+  margin-right: 8px;
+  vertical-align: text-bottom;
+}
+</style>
