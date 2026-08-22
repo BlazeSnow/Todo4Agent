@@ -44,20 +44,16 @@ jobs:
       - name: Build and bundle
         run: pnpm tauri build
 
-      - name: Upload artifacts to GitHub Release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="${{ github.ref_name }}"
-          if [[ "$tag" == *"-beta"* ]]; then prerelease="true"; else prerelease="false"; fi
-          artifacts=$(find src-tauri/target/release/bundle -type f \( -name '*.msi' -o -name '*.exe' \
-            -o -name '*.dmg' -o -name '*.app' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' \))
-          if [ -z "$artifacts" ]; then
-            echo "未找到打包产物"
-            exit 1
-          fi
-          # beta 版以 Prerelease 发布；Release 已存在时只补充上传产物
-          gh release create "$tag" $artifacts \
-            --title "Todo4Agent $tag" --generate-notes --prerelease="$prerelease" \
-            || gh release upload "$tag" $artifacts --clobber
+      - name: Create or update GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref_name }}
+          name: Todo4Agent ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-beta') }}
+          generateReleaseNotes: true
+          # 多平台并行构建：release 可能已被其他平台创建，允许更新并替换产物
+          allowUpdates: true
+          replacesArtifacts: true
+          artifactErrorsFailBuild: false
+          artifacts: "src-tauri/target/release/bundle/**/*.msi,src-tauri/target/release/bundle/**/*.exe,src-tauri/target/release/bundle/**/*.dmg,src-tauri/target/release/bundle/**/*.deb,src-tauri/target/release/bundle/**/*.AppImage,src-tauri/target/release/bundle/**/*.rpm"
