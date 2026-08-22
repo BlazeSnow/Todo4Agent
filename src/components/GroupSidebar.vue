@@ -5,6 +5,8 @@ defineProps<{
   groups: Group[]
   selectedId: number | null
   loading: boolean
+  /** 当前主视图，用于侧边栏底部入口的选中高亮 */
+  activeView: 'tasks' | 'settings' | 'mcp'
 }>()
 
 defineEmits<{
@@ -68,9 +70,15 @@ defineEmits<{
       prepend-icon="mdi-connection"
       title="Agent 接入（MCP）"
       subtitle="点击查看连接说明"
+      :active="activeView === 'mcp'"
       @click="$emit('mcp')"
     />
 
-    <v-list-item prepend-icon="mdi-cog-outline" title="设置" @click="$emit('settings')" />
+    <v-list-item
+      prepend-icon="mdi-cog-outline"
+      title="设置"
+      :active="activeView === 'settings'"
+      @click="$emit('settings')"
+    />
   </v-list>
 </template>
