@@ -305,7 +305,7 @@ function overdue(task: Task): boolean {
   gap: 12px;
   padding: 12px 16px;
   margin-bottom: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
   border-radius: 8px;
   background: rgb(var(--v-theme-surface));
   transition: border-color 0.15s ease;
@@ -338,11 +338,11 @@ function overdue(task: Task): boolean {
 }
 .task-title.struck {
   text-decoration: line-through;
-  color: rgba(0, 0, 0, 0.45);
+  color: rgba(var(--v-theme-on-surface), 0.45);
 }
 .task-desc {
   font-size: 13px;
-  color: rgba(0, 0, 0, 0.6);
+  color: rgba(var(--v-theme-on-surface), 0.6);
   white-space: pre-wrap;
   word-break: break-word;
   margin-top: 2px;
@@ -355,8 +355,8 @@ function overdue(task: Task): boolean {
   padding: 2px 10px;
   font-size: 12px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.06);
-  color: rgba(0, 0, 0, 0.7);
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.7);
 }
 .task-due .mdi {
   font-size: 13px;
@@ -379,7 +379,7 @@ function overdue(task: Task): boolean {
   align-items: center;
   gap: 4px;
   padding: 48px 0;
-  color: rgba(0, 0, 0, 0.4);
+  color: rgba(var(--v-theme-on-surface), 0.4);
 }
 .empty-state .mdi {
   font-size: 48px;
@@ -388,7 +388,7 @@ function overdue(task: Task): boolean {
 .empty-title {
   font-size: 15px;
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.6);
+  color: rgba(var(--v-theme-on-surface), 0.6);
 }
 .empty-text {
   font-size: 13px;
