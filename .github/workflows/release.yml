@@ -55,7 +55,7 @@ jobs:
         tag: ${{ github.ref_name }}
         name: Todo4Agent ${{ github.ref_name }}
         prerelease: ${{ contains(github.ref_name, '-beta') }}
-        generateReleaseNotes: true
+        body: 完整更新日志见 [CHANGELOG.md](CHANGELOG.md)
         # 多平台并行构建：release 可能已被其他平台创建，允许更新并替换产物
         allowUpdates: true
         replacesArtifacts: true
