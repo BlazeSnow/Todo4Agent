@@ -6,7 +6,7 @@ defineProps<{
   selectedId: number | null
   loading: boolean
   /** 当前主视图，用于侧边栏底部入口的选中高亮 */
-  activeView: 'tasks' | 'settings' | 'mcp'
+  activeView: 'tasks' | 'settings' | 'mcp' | 'trash'
 }>()
 
 defineEmits<{
@@ -16,6 +16,7 @@ defineEmits<{
   (e: 'delete', group: Group): void
   (e: 'mcp'): void
   (e: 'settings'): void
+  (e: 'trash'): void
 }>()
 </script>
 
@@ -72,6 +73,13 @@ defineEmits<{
       subtitle="点击查看连接说明"
       :active="activeView === 'mcp'"
       @click="$emit('mcp')"
+    />
+
+    <v-list-item
+      prepend-icon="mdi-trash-can-outline"
+      title="回收站"
+      :active="activeView === 'trash'"
+      @click="$emit('trash')"
     />
 
     <v-list-item

@@ -4,6 +4,8 @@ export interface Group {
   name: string
   sort_order: number
   created_at: string
+  /** 回收站标记：非 null 表示已删除 */
+  deleted_at: string | null
 }
 
 /** 任务状态 */
@@ -21,6 +23,8 @@ export interface Task {
   updated_at: string
   /** 手动排序序号（越小越靠前） */
   sort_order: number
+  /** 回收站标记：非 null 表示已删除 */
+  deleted_at: string | null
 }
 
 /** 建任务输入 */

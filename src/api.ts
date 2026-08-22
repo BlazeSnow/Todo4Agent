@@ -61,6 +61,37 @@ export function reorderTasks(groupId: number, taskIds: number[]): Promise<{ ok: 
   })
 }
 
+// ---------- 回收站 ----------
+
+export interface TrashData {
+  groups: Group[]
+  tasks: Task[]
+}
+
+export async function listTrash(): Promise<TrashData> {
+  return request<TrashData>('/trash')
+}
+
+export function restoreTask(id: number): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/tasks/${id}/restore`, { method: 'POST' })
+}
+
+export function purgeTask(id: number): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/tasks/${id}/purge`, { method: 'DELETE' })
+}
+
+export function restoreGroup(id: number): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/groups/${id}/restore`, { method: 'POST' })
+}
+
+export function purgeGroup(id: number): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/groups/${id}/purge`, { method: 'DELETE' })
+}
+
+export function emptyTrash(): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('/trash', { method: 'DELETE' })
+}
+
 export async function exportDoc(): Promise<ExportDoc> {
   return request<ExportDoc>('/export')
 }

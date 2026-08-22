@@ -8,14 +8,21 @@ import TaskListView from './components/TaskListView.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SettingsView from './components/SettingsView.vue'
 import MCPView from './components/MCPView.vue'
+import TrashView from './components/TrashView.vue'
 import {
   createGroup,
   createTask,
   deleteGroup,
   deleteTask,
+  emptyTrash,
   listGroups,
   listTasks,
+  listTrash,
+  purgeGroup,
+  purgeTask,
   renameGroup,
+  restoreGroup,
+  restoreTask,
   updateTask,
 } from './api'
 import type { Group, Task, TaskInput } from './types'
@@ -42,8 +49,27 @@ const groupDialog = ref(false)
 const groupDialogMode = ref<'create' | 'rename'>('create')
 const groupDialogTarget = ref<Group | null>(null)
 const confirmDialog = ref(false)
-const confirmAction = ref<{ type: 'group' | 'task'; id: number } | null>(null)
-const currentView = ref<'tasks' | 'settings' | 'mcp'>('tasks')
+type TrashAction = 'group' | 'task' | 'purgeGroup' | 'purgeTask' | 'emptyTrash'
+const confirmAction = ref<{ type: TrashAction; id?: number } | null>(null)
+const currentView = ref<'tasks' | 'settings' | 'mcp' | 'trash'>('tasks')
+
+// 回收站
+const trashGroups = ref<Group[]>([])
+const trashTasks = ref<Task[]>([])
+
+async function loadTrash() {
+  try {
+    const data = await listTrash()
+    trashGroups.value = data.groups
+    trashTasks.value = data.tasks
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
+watch(currentView, (v) => {
+  if (v === 'trash') loadTrash()
+})
 
 const selectedGroup = computed(
   () => groups.value.find((g) => g.id === selectedGroupId.value) ?? null,
@@ -179,30 +205,86 @@ function onDeleteTask(task: Task) {
   confirmDialog.value = true
 }
 
-const confirmMessage = computed(() =>
-  confirmAction.value?.type === 'group'
-    ? '删除后该分组下的任务将一并删除，且不可恢复。确定继续吗？'
-    : '删除后不可恢复，确定继续吗？',
-)
+const confirmMessage = computed(() => {
+  switch (confirmAction.value?.type) {
+    case 'group':
+      return '删除后分组及其任务将移入回收站，可随时恢复。确定删除吗？'
+    case 'task':
+      return '删除后任务将移入回收站，可随时恢复。确定删除吗？'
+    case 'purgeGroup':
+      return '将彻底删除该分组及其任务，不可恢复。确定继续吗？'
+    case 'purgeTask':
+      return '将彻底删除该任务，不可恢复。确定继续吗？'
+    case 'emptyTrash':
+      return '将彻底删除回收站中的所有内容，不可恢复。确定继续吗？'
+    default:
+      return ''
+  }
+})
 
 async function doConfirm() {
   const action = confirmAction.value
   if (!action) return
   confirmDialog.value = false
   try {
-    if (action.type === 'group') {
-      await deleteGroup(action.id)
-      notify('已删除分组')
-      await loadGroups()
-    } else {
-      await deleteTask(action.id)
-      notify('已删除任务')
-      await loadTasks()
+    switch (action.type) {
+      case 'group':
+        await deleteGroup(action.id!)
+        notify('已移入回收站')
+        await loadGroups()
+        break
+      case 'task':
+        await deleteTask(action.id!)
+        notify('已移入回收站')
+        await loadTasks()
+        break
+      case 'purgeGroup':
+        await purgeGroup(action.id!)
+        notify('已彻底删除分组')
+        await loadTrash()
+        break
+      case 'purgeTask':
+        await purgeTask(action.id!)
+        notify('已彻底删除任务')
+        await loadTrash()
+        break
+      case 'emptyTrash':
+        await emptyTrash()
+        notify('回收站已清空')
+        await loadTrash()
+        break
     }
   } catch (e) {
     notify((e as Error).message)
   }
   confirmAction.value = null
+}
+
+async function onRestoreTrash(kind: 'group' | 'task', id: number) {
+  try {
+    if (kind === 'task') {
+      await restoreTask(id)
+      notify('已恢复任务')
+      await loadTasks()
+    } else {
+      await restoreGroup(id)
+      notify('已恢复分组及其任务')
+      await loadGroups()
+    }
+    await loadTrash()
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
+function onPurgeTrash(kind: 'group' | 'task', id: number) {
+  confirmAction.value = { type: kind === 'task' ? 'purgeTask' : 'purgeGroup', id }
+  confirmDialog.value = true
+}
+
+function onEmptyTrash() {
+  confirmAction.value = { type: 'emptyTrash' }
+  confirmDialog.value = true
 }
 
 // ---------- 导出（由设置页触发） ----------
@@ -253,6 +335,7 @@ function notifyExported() {
         @delete="onDeleteGroup"
         @mcp="currentView = 'mcp'"
         @settings="currentView = 'settings'"
+        @trash="currentView = 'trash'"
       />
     </v-navigation-drawer>
 
@@ -272,6 +355,15 @@ function notifyExported() {
           v-else-if="currentView === 'settings'"
           @exported="notifyExported"
           @error="notify"
+        />
+        <TrashView
+          v-else-if="currentView === 'trash'"
+          :groups="trashGroups"
+          :tasks="trashTasks"
+          :active-groups="groups"
+          @restore="onRestoreTrash"
+          @purge="onPurgeTrash"
+          @empty="onEmptyTrash"
         />
         <MCPView v-else @notify="notify" />
       </v-container>

@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode},
     response::Response,
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use rusqlite::Connection;
@@ -200,15 +200,75 @@ async fn export_json(State(st): State<SharedState>) -> ApiResult {
     }
 }
 
+// ---------- 回收站 ----------
+
+async fn get_trash(State(st): State<SharedState>) -> ApiResult {
+    let c = st.db.lock().unwrap();
+    match db::list_trash(&c) {
+        Ok((groups, tasks)) => ok_json(json!({ "groups": groups, "tasks": tasks })),
+        Err(e) => internal(e),
+    }
+}
+
+/// 清空回收站（彻底删除已删除的分组与任务）
+async fn empty_trash(State(st): State<SharedState>) -> ApiResult {
+    let c = st.db.lock().unwrap();
+    match db::empty_trash(&c) {
+        Ok(()) => ok_json(json!({ "ok": true })),
+        Err(e) => internal(e),
+    }
+}
+
+async fn restore_task(State(st): State<SharedState>, Path(id): Path<i64>) -> ApiResult {
+    let c = st.db.lock().unwrap();
+    match db::restore_task(&c, id) {
+        Ok(true) => ok_json(json!({ "ok": true })),
+        Ok(false) => err(StatusCode::NOT_FOUND, "任务不在回收站"),
+        Err(e) => internal(e),
+    }
+}
+
+async fn purge_task(State(st): State<SharedState>, Path(id): Path<i64>) -> ApiResult {
+    let c = st.db.lock().unwrap();
+    match db::purge_task(&c, id) {
+        Ok(true) => ok_json(json!({ "ok": true })),
+        Ok(false) => err(StatusCode::NOT_FOUND, "任务不存在"),
+        Err(e) => internal(e),
+    }
+}
+
+async fn restore_group(State(st): State<SharedState>, Path(id): Path<i64>) -> ApiResult {
+    let c = st.db.lock().unwrap();
+    match db::restore_group(&c, id) {
+        Ok(true) => ok_json(json!({ "ok": true })),
+        Ok(false) => err(StatusCode::NOT_FOUND, "分组不在回收站"),
+        Err(e) => internal(e),
+    }
+}
+
+async fn purge_group(State(st): State<SharedState>, Path(id): Path<i64>) -> ApiResult {
+    let c = st.db.lock().unwrap();
+    match db::purge_group(&c, id) {
+        Ok(true) => ok_json(json!({ "ok": true })),
+        Ok(false) => err(StatusCode::NOT_FOUND, "分组不存在"),
+        Err(e) => internal(e),
+    }
+}
+
 // ---------- 路由与内嵌静态资源 ----------
 
 fn api_router(state: SharedState) -> Router {
     Router::new()
         .route("/groups", get(list_groups).post(create_group))
         .route("/groups/{id}", patch(rename_group).delete(delete_group))
+        .route("/groups/{id}/restore", post(restore_group))
+        .route("/groups/{id}/purge", delete(purge_group))
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/reorder/{group_id}", post(reorder_tasks))
         .route("/tasks/{id}", patch(update_task).delete(delete_task))
+        .route("/tasks/{id}/restore", post(restore_task))
+        .route("/tasks/{id}/purge", delete(purge_task))
+        .route("/trash", get(get_trash).delete(empty_trash))
         .route("/export", get(export_json))
         .with_state(state)
 }
