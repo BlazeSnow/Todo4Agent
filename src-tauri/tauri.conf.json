@@ -27,7 +27,11 @@
     ],
     "windows": {
       "wix": {
-        "version": "1.0.0.2"
+        "version": "1.0.0.2",
+        "language": "zh-CN"
+      },
+      "nsis": {
+        "languages": ["SimpChinese"]
       }
     }
   }

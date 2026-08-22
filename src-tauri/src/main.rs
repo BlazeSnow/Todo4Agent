@@ -4,6 +4,10 @@
 //! - `serve`：headless HTTP 服务（WebUI 于 3000 端口）
 //! - `mcp`：MCP stdio 服务（供 Agent 连接操作任务清单）
 
+// Windows 发布版走 GUI 子系统，避免启动时弹出黑色控制台窗口；
+// debug 构建保留控制台，便于查看后端日志。
+#![cfg_attr(all(not(debug_assertions), windows), windows_subsystem = "windows")]
+
 mod api;
 mod auth;
 mod db;
