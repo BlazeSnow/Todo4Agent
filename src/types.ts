@@ -58,3 +58,11 @@ export interface ExportDoc {
     }[]
   }[]
 }
+
+/** 服务设置 */
+export interface SettingsInfo {
+  /** 配置的端口（保存值） */
+  port: number
+  /** 当前实际监听的端口 */
+  effective_port: number
+}

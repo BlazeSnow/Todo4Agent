@@ -25,6 +25,8 @@ use crate::db;
 
 pub struct AppState {
     pub db: Mutex<Connection>,
+    /// 实际监听的端口（供设置页展示）
+    pub effective_port: u16,
 }
 pub type SharedState = Arc<AppState>;
 
@@ -275,6 +277,34 @@ async fn purge_group(State(st): State<SharedState>, Path(id): Path<i64>) -> ApiR
     }
 }
 
+// ---------- 设置 ----------
+
+async fn get_settings(State(st): State<SharedState>) -> ApiResult {
+    let c = st.db.lock().unwrap();
+    let port = db::get_port_setting(&c).unwrap_or(db::DEFAULT_PORT);
+    ok_json(json!({
+        "port": port,
+        "effective_port": st.effective_port
+    }))
+}
+
+#[derive(Deserialize)]
+struct PortInput {
+    port: u16,
+}
+
+/// 保存端口配置（重启应用后生效）
+async fn update_settings(State(st): State<SharedState>, Json(body): Json<PortInput>) -> ApiResult {
+    if !(1024..=65535).contains(&body.port) {
+        return err(StatusCode::BAD_REQUEST, "端口范围：1024-65535");
+    }
+    let c = st.db.lock().unwrap();
+    match db::set_setting(&c, db::SETTINGS_PORT_KEY, &body.port.to_string()) {
+        Ok(()) => ok_json(json!({ "port": body.port })),
+        Err(e) => internal(e),
+    }
+}
+
 // ---------- 路由与内嵌静态资源 ----------
 
 fn api_router(state: SharedState) -> Router {
@@ -291,6 +321,7 @@ fn api_router(state: SharedState) -> Router {
         .route("/tasks/{id}/purge", delete(purge_task))
         .route("/trash", get(get_trash).delete(empty_trash))
         .route("/export", get(export_json))
+        .route("/settings", get(get_settings).patch(update_settings))
         .with_state(state)
 }
 
@@ -337,9 +368,10 @@ impl Service<axum::extract::Request> for EmbeddedAssets {
 
 // ---------- 端口与启动 ----------
 
-/// 绑定 127.0.0.1:3000（占用时顺延到 3010），返回监听器与实际端口
-pub async fn bind_tokio() -> std::io::Result<(tokio::net::TcpListener, u16)> {
-    for port in 3000..=3010 {
+/// 从配置端口开始绑定 127.0.0.1（占用时顺延最多 10 个端口），返回监听器与实际端口
+pub async fn bind_tokio(preferred: u16) -> std::io::Result<(tokio::net::TcpListener, u16)> {
+    let end = preferred.saturating_add(10).min(65535);
+    for port in preferred..=end {
         match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
             Ok(l) => return Ok((l, port)),
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => continue,
@@ -348,23 +380,29 @@ pub async fn bind_tokio() -> std::io::Result<(tokio::net::TcpListener, u16)> {
     }
     Err(std::io::Error::new(
         std::io::ErrorKind::AddrInUse,
-        "端口 3000-3010 均被占用",
+        "端口被占用（含顺延 10 个端口）",
     ))
 }
 
-fn state() -> SharedState {
-    Arc::new(AppState {
-        db: Mutex::new(db::open(&db::db_path()).expect("打开数据库失败")),
-    })
+/// 打开数据库并读取端口配置，连同数据库一起返回
+fn open_db() -> (Mutex<Connection>, u16) {
+    let conn = db::open(&db::db_path()).expect("打开数据库失败");
+    let port = db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT);
+    (Mutex::new(conn), port)
 }
 
 /// 在当前线程阻塞运行 HTTP 服务（headless serve 模式）
 pub fn serve_blocking() {
     let rt = tokio::runtime::Runtime::new().expect("创建 tokio runtime 失败");
     rt.block_on(async move {
-        let (listener, port) = bind_tokio().await.expect("绑定端口失败");
+        let (db, preferred) = open_db();
+        let (listener, port) = bind_tokio(preferred).await.expect("绑定端口失败");
         println!("Todo4Agent WebUI: http://127.0.0.1:{port}");
-        if let Err(e) = axum::serve(listener, app(state())).await {
+        let state = Arc::new(AppState {
+            db,
+            effective_port: port,
+        });
+        if let Err(e) = axum::serve(listener, app(state)).await {
             eprintln!("HTTP 服务错误: {e}");
         }
     });
@@ -376,10 +414,15 @@ pub fn spawn_server() -> u16 {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("创建 tokio runtime 失败");
         rt.block_on(async move {
-            let (listener, port) = bind_tokio().await.expect("绑定端口失败");
+            let (db, preferred) = open_db();
+            let (listener, port) = bind_tokio(preferred).await.expect("绑定端口失败");
             println!("Todo4Agent WebUI: http://127.0.0.1:{port}");
             let _ = tx.send(port);
-            if let Err(e) = axum::serve(listener, app(state())).await {
+            let state = Arc::new(AppState {
+                db,
+                effective_port: port,
+            });
+            if let Err(e) = axum::serve(listener, app(state)).await {
                 eprintln!("HTTP 服务错误: {e}");
             }
         });

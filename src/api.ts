@@ -104,6 +104,20 @@ export async function exportDoc(): Promise<ExportDoc> {
   return request<ExportDoc>('/export')
 }
 
+// ---------- 设置 ----------
+
+export function getSettings(): Promise<SettingsInfo> {
+  return request<SettingsInfo>('/settings')
+}
+
+/** 保存端口配置（重启应用后生效） */
+export function updateSettings(port: number): Promise<{ port: number }> {
+  return request<{ port: number }>('/settings', {
+    method: 'PATCH',
+    body: JSON.stringify({ port }),
+  })
+}
+
 /** 导出 JSON 并触发浏览器下载 */
 export function downloadExport(doc: ExportDoc): void {
   const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' })

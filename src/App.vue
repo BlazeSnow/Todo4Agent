@@ -380,6 +380,7 @@ function notifyExported() {
           v-else-if="currentView === 'settings'"
           @exported="notifyExported"
           @error="notify"
+          @notify="notify"
         />
         <TrashView
           v-else-if="currentView === 'trash'"

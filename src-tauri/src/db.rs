@@ -71,6 +71,38 @@ fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
+// ---------- 设置 ----------
+
+/// WebUI/API 端口设置键，默认 3000
+pub const SETTINGS_PORT_KEY: &str = "port";
+pub const DEFAULT_PORT: u16 = 3000;
+
+pub fn get_setting(conn: &Connection, key: &str) -> SqlResult<Option<String>> {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> SqlResult<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// 读取端口配置；未设置或非法时回退默认值
+pub fn get_port_setting(conn: &Connection) -> SqlResult<u16> {
+    match get_setting(conn, SETTINGS_PORT_KEY)? {
+        Some(v) => Ok(v.trim().parse().unwrap_or(DEFAULT_PORT)),
+        None => Ok(DEFAULT_PORT),
+    }
+}
+
 /// 数据库文件位置：环境变量 TODO4AGENT_DB 优先，否则平台数据目录
 pub fn db_path() -> PathBuf {
     if let Ok(p) = std::env::var("TODO4AGENT_DB") {
@@ -111,6 +143,10 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
             deleted_at  TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(group_id);
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         "#,
     )?;
     ensure_task_sort_column(&conn)?;
@@ -645,6 +681,17 @@ mod tests {
         let (groups, tasks) = list_trash(&c).unwrap();
         assert!(groups.is_empty());
         assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn settings_roundtrip() {
+        let c = test_conn();
+        assert_eq!(get_port_setting(&c).unwrap(), DEFAULT_PORT);
+        set_setting(&c, SETTINGS_PORT_KEY, "8080").unwrap();
+        assert_eq!(get_port_setting(&c).unwrap(), 8080);
+        // 覆盖更新
+        set_setting(&c, SETTINGS_PORT_KEY, "9001").unwrap();
+        assert_eq!(get_port_setting(&c).unwrap(), 9001);
     }
 
     #[test]
