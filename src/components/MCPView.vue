@@ -96,7 +96,7 @@ async function copyConfig() {
         </v-btn>
       </v-card-title>
       <v-card-text>
-        <pre class="bg-surface-variant pa-3 rounded"><code>{{ configText }}</code></pre>
+        <pre class="code-block pa-3 rounded"><code>{{ configText }}</code></pre>
       </v-card-text>
     </v-card>
 
@@ -115,3 +115,14 @@ async function copyConfig() {
     </v-card>
   </div>
 </template>
+
+<style>
+/* 代码块面板：深色主题用近黑面板色，浅色主题沿用 surface-variant */
+.v-theme--dark .code-block {
+  background: #16181d;
+  color: #d6d9df;
+}
+.v-theme--light .code-block {
+  background: rgb(var(--v-theme-surface-variant));
+}
+</style>
