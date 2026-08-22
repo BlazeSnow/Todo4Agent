@@ -4,6 +4,8 @@ import { useDisplay } from 'vuetify'
 import GroupSidebar from './components/GroupSidebar.vue'
 import GroupDialog from './components/GroupDialog.vue'
 import TaskDialog from './components/TaskDialog.vue'
+import TaskListView from './components/TaskListView.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 import SettingsView from './components/SettingsView.vue'
 import MCPView from './components/MCPView.vue'
 import {
@@ -177,9 +179,16 @@ function onDeleteTask(task: Task) {
   confirmDialog.value = true
 }
 
+const confirmMessage = computed(() =>
+  confirmAction.value?.type === 'group'
+    ? '删除后该分组下的任务将一并删除，且不可恢复。确定继续吗？'
+    : '删除后不可恢复，确定继续吗？',
+)
+
 async function doConfirm() {
   const action = confirmAction.value
   if (!action) return
+  confirmDialog.value = false
   try {
     if (action.type === 'group') {
       await deleteGroup(action.id)
@@ -200,29 +209,6 @@ async function doConfirm() {
 
 function notifyExported() {
   notify('已导出 JSON')
-}
-
-// ---------- 展示辅助 ----------
-
-function formatDue(iso: string): string {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return iso
-  return d.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
-}
-
-function overdue(task: Task): boolean {
-  if (!task.due_at || task.status === 'done') return false
-  const d = new Date(task.due_at)
-  return !isNaN(d.getTime()) && d.getTime() < Date.now()
-}
-
-async function copyMcpCommand() {
-  try {
-    await navigator.clipboard.writeText('todo4agent mcp')
-    notify('已复制命令：todo4agent mcp')
-  } catch {
-    notify('复制失败，请手动复制')
-  }
 }
 </script>
 
@@ -272,80 +258,21 @@ async function copyMcpCommand() {
 
     <v-main>
       <v-container fluid class="pa-4">
-        <template v-if="currentView === 'tasks'">
-          <div class="d-flex align-center mb-4">
-            <v-icon icon="mdi-folder-outline" class="mr-2" />
-            <h2 class="text-h6">{{ selectedGroup?.name ?? '未选择分组' }}</h2>
-            <v-spacer />
-            <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateTask">
-              新建任务
-            </v-btn>
-          </div>
-
-          <v-alert v-if="!selectedGroup" type="info" text="请先在左侧创建分组" />
-
-          <v-progress-linear v-if="loadingTasks" indeterminate class="mb-4" />
-
-          <v-card
-            v-for="task in tasks"
-            :key="task.id"
-            class="mb-2"
-            variant="outlined"
-            :class="{ 'opacity-60': task.status === 'done' }"
-          >
-            <v-list-item>
-              <template #prepend>
-                <v-checkbox-btn
-                  :model-value="task.status === 'done'"
-                  color="success"
-                  @update:model-value="onToggleTask(task)"
-                />
-              </template>
-              <v-list-item-title
-                :class="{ 'text-decoration-line-through': task.status === 'done' }"
-              >
-                {{ task.title }}
-              </v-list-item-title>
-              <v-list-item-subtitle v-if="task.description" class="text-pre-wrap">
-                {{ task.description }}
-              </v-list-item-subtitle>
-              <v-list-item-subtitle v-if="task.due_at" class="mt-1">
-                <v-chip
-                  size="small"
-                  variant="tonal"
-                  :color="overdue(task) ? 'error' : 'default'"
-                >
-                  <v-icon start icon="mdi-calendar" size="small" />
-                  {{ formatDue(task.due_at) }}
-                </v-chip>
-              </v-list-item-subtitle>
-              <template #append>
-                <v-btn
-                  icon="mdi-pencil"
-                  size="small"
-                  variant="text"
-                  @click="openEditTask(task)"
-                />
-                <v-btn
-                  icon="mdi-delete"
-                  size="small"
-                  variant="text"
-                  color="error"
-                  @click="onDeleteTask(task)"
-                />
-              </template>
-            </v-list-item>
-          </v-card>
-
-          <v-empty
-            v-if="!loadingTasks && selectedGroup && tasks.length === 0"
-            icon="mdi-inbox-outline"
-            title="暂无任务"
-            text="点击右上角「新建任务」，或让 Agent 通过 MCP 添加"
-          />
-        </template>
-
-        <SettingsView v-else-if="currentView === 'settings'" @exported="notifyExported" @error="notify" />
+        <TaskListView
+          v-if="currentView === 'tasks'"
+          :tasks="tasks"
+          :loading="loadingTasks"
+          :group-name="selectedGroup?.name ?? null"
+          @create="openCreateTask"
+          @edit="openEditTask"
+          @toggle="onToggleTask"
+          @remove="onDeleteTask"
+        />
+        <SettingsView
+          v-else-if="currentView === 'settings'"
+          @exported="notifyExported"
+          @error="notify"
+        />
         <MCPView v-else @notify="notify" />
       </v-container>
     </v-main>
@@ -364,31 +291,7 @@ async function copyMcpCommand() {
       @save="onGroupDialogSave"
     />
 
-    <v-dialog v-model="confirmDialog" max-width="420">
-      <v-card>
-        <v-card-title>确认删除</v-card-title>
-        <v-card-text>
-          {{
-            confirmAction?.type === 'group'
-              ? '删除后该分组下的任务将一并删除，且不可恢复。确定继续吗？'
-              : '删除后不可恢复，确定继续吗？'
-          }}
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="confirmDialog = false">取消</v-btn>
-          <v-btn
-            color="error"
-            @click="
-              confirmDialog = false;
-              doConfirm()
-            "
-          >
-            删除
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <ConfirmDialog v-model="confirmDialog" :message="confirmMessage" @confirm="doConfirm" />
 
     <v-snackbar v-model="snackbar.show" :timeout="3000" location="bottom">
       {{ snackbar.text }}
