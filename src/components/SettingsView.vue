@@ -50,8 +50,16 @@ async function onExport() {
               <span class="text-medium-emphasis">v{{ packageJson.version }}</span>
             </template>
           </v-list-item>
-          <v-list-item title="软件说明" subtitle="为 Agent 设计的 MCP 任务清单" />
-          <v-list-item title="仓库" subtitle="github.com/BlazeSnow/Todo4Agent" />
+          <v-list-item title="软件说明">
+            <template #append>
+              <span class="text-medium-emphasis text-right">为 Agent 设计的 MCP 任务清单</span>
+            </template>
+          </v-list-item>
+          <v-list-item title="仓库">
+            <template #append>
+              <span class="text-medium-emphasis">github.com/BlazeSnow/Todo4Agent</span>
+            </template>
+          </v-list-item>
         </v-list>
       </v-card-text>
     </v-card>
