@@ -26,8 +26,9 @@ const loadingGroups = ref(false)
 const loadingTasks = ref(false)
 const snackbar = ref({ show: false, text: '' })
 
-// 窄屏（手机/小窗口）时侧边栏自动切换为浮层模式，不挤压主内容
-const { mobile } = useDisplay()
+// 窄屏（<960px）时侧边栏允许伸缩并切换为浮层模式；大屏常驻，不显示切换按钮
+const { width } = useDisplay()
+const isSmall = computed(() => width.value < 960)
 
 const taskDialog = ref(false)
 const editingTask = ref<Task | null>(null)
@@ -238,6 +239,7 @@ async function copyMcpCommand() {
     <v-app-bar app>
       <template #prepend>
         <v-btn
+          v-if="isSmall"
           :icon="drawer ? 'mdi-menu-open' : 'mdi-menu'"
           variant="text"
           aria-label="切换侧边栏"
@@ -257,7 +259,13 @@ async function copyMcpCommand() {
       <v-btn variant="text" prepend-icon="mdi-refresh" @click="loadGroups">刷新</v-btn>
     </v-app-bar>
 
-    <v-navigation-drawer v-model="drawer" app width="280" :temporary="mobile">
+    <v-navigation-drawer
+      :model-value="isSmall ? drawer : true"
+      app
+      width="280"
+      :temporary="isSmall"
+      @update:model-value="(v) => (drawer = v)"
+    >
       <GroupSidebar
         :groups="groups"
         :selected-id="selectedGroupId"
