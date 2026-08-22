@@ -46,8 +46,9 @@ const displayedTasks = computed<Task[]>(() => {
 })
 
 /** 点击已选中的排序项时恢复默认顺序 */
-function toggleSort(mode: SortMode) {
-  sortMode.value = sortMode.value === mode ? null : mode
+/** 选择排序方式；null 为默认顺序 */
+function toggleSort(mode: SortMode | null) {
+  sortMode.value = mode
 }
 
 // ---------- 上移 / 下移 ----------
@@ -72,7 +73,8 @@ function moveTask(task: Task, dir: -1 | 1) {
   emit('reorder', list.map((t) => t.id))
 }
 
-const sortOptions: { value: SortMode; label: string }[] = [
+const sortOptions: { value: SortMode | null; label: string }[] = [
+  { value: null, label: '默认顺序' },
   { value: 'time', label: '按截止时间' },
   { value: 'title', label: '按标题' },
 ]

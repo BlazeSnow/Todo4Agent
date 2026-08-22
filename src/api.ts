@@ -31,6 +31,14 @@ export function renameGroup(id: number, name: string): Promise<Group> {
   return request<Group>(`/groups/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) })
 }
 
+/** 按给定顺序重排全部分组 */
+export function reorderGroups(groupIds: number[]): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('/groups/reorder', {
+    method: 'POST',
+    body: JSON.stringify({ group_ids: groupIds }),
+  })
+}
+
 export function deleteGroup(id: number): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(`/groups/${id}`, { method: 'DELETE' })
 }

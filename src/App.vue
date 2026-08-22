@@ -21,6 +21,7 @@ import {
   purgeGroup,
   purgeTask,
   renameGroup,
+  reorderGroups,
   reorderTasks,
   restoreGroup,
   restoreTask,
@@ -217,6 +218,16 @@ async function onReorderTasks(taskIds: number[]) {
   await loadTasks()
 }
 
+/** 分组上移/下移后持久化新顺序 */
+async function onReorderGroups(groupIds: number[]) {
+  try {
+    await reorderGroups(groupIds)
+  } catch (e) {
+    notify((e as Error).message)
+  }
+  await loadGroups()
+}
+
 const confirmMessage = computed(() => {
   switch (confirmAction.value?.type) {
     case 'group':
@@ -348,6 +359,7 @@ function notifyExported() {
         @mcp="currentView = 'mcp'"
         @settings="currentView = 'settings'"
         @trash="currentView = 'trash'"
+        @reorder="onReorderGroups"
       />
     </v-navigation-drawer>
 

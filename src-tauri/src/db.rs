@@ -243,6 +243,20 @@ pub fn rename_group(conn: &Connection, id: i64, name: &str) -> SqlResult<Option<
     Ok(Some(row))
 }
 
+/// 按给定顺序重排所有分组（group_ids 中分组的 sort_order 依次赋 0,1,2,...）
+/// 调用方需持锁独占访问，故使用 unchecked_transaction
+pub fn reorder_groups(conn: &Connection, group_ids: &[i64]) -> SqlResult<()> {
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut stmt =
+            tx.prepare("UPDATE groups SET sort_order = ?1 WHERE id = ?2 AND deleted_at IS NULL")?;
+        for (i, gid) in group_ids.iter().enumerate() {
+            stmt.execute(params![i as i64, gid])?;
+        }
+    }
+    tx.commit()
+}
+
 /// 软删除分组（连同其下任务一并进入回收站）；不存在或已删除返回 Ok(false)
 pub fn delete_group(conn: &Connection, id: i64) -> SqlResult<bool> {
     let tx = conn.unchecked_transaction()?;
@@ -568,6 +582,19 @@ mod tests {
             .map(|t| t.id)
             .collect();
         assert_eq!(ids, vec![t2.id, t3.id, t1.id]);
+    }
+
+    #[test]
+    fn reorder_groups_order() {
+        let c = test_conn();
+        let g1 = create_group(&c, "甲").unwrap();
+        let g2 = create_group(&c, "乙").unwrap();
+        let g3 = create_group(&c, "丙").unwrap();
+
+        reorder_groups(&c, &[g3.id, g1.id, g2.id]).unwrap();
+        let ids: Vec<i64> = list_groups(&c).unwrap().iter().map(|g| g.id).collect();
+        // 默认分组（快速清单）在最前，其后依次为 丙、甲、乙
+        assert_eq!(ids, vec![1, g3.id, g1.id, g2.id]);
     }
 
     #[test]

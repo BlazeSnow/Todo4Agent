@@ -100,6 +100,26 @@ async fn delete_group(State(st): State<SharedState>, Path(id): Path<i64>) -> Api
     }
 }
 
+#[derive(Deserialize)]
+struct GroupReorderInput {
+    group_ids: Vec<i64>,
+}
+
+/// 重排所有分组（按 group_ids 的顺序）
+async fn reorder_groups(
+    State(st): State<SharedState>,
+    Json(body): Json<GroupReorderInput>,
+) -> ApiResult {
+    if body.group_ids.is_empty() {
+        return err(StatusCode::BAD_REQUEST, "group_ids 不能为空");
+    }
+    let c = st.db.lock().unwrap();
+    match db::reorder_groups(&c, &body.group_ids) {
+        Ok(()) => ok_json(json!({ "ok": true })),
+        Err(e) => internal(e),
+    }
+}
+
 // ---------- 任务 ----------
 
 #[derive(Deserialize)]
@@ -260,6 +280,7 @@ async fn purge_group(State(st): State<SharedState>, Path(id): Path<i64>) -> ApiR
 fn api_router(state: SharedState) -> Router {
     Router::new()
         .route("/groups", get(list_groups).post(create_group))
+        .route("/groups/reorder", post(reorder_groups))
         .route("/groups/{id}", patch(rename_group).delete(delete_group))
         .route("/groups/{id}/restore", post(restore_group))
         .route("/groups/{id}/purge", delete(purge_group))

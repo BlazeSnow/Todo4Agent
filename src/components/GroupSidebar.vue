@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Group } from '../types'
 
-defineProps<{
+const props = defineProps<{
   groups: Group[]
   selectedId: number | null
   loading: boolean
@@ -9,7 +9,7 @@ defineProps<{
   activeView: 'tasks' | 'settings' | 'mcp' | 'trash'
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'select', id: number): void
   (e: 'create'): void
   (e: 'rename', group: Group): void
@@ -17,7 +17,28 @@ defineEmits<{
   (e: 'mcp'): void
   (e: 'settings'): void
   (e: 'trash'): void
+  (e: 'reorder', groupIds: number[]): void
 }>()
+
+// ---------- 上移 / 下移 ----------
+
+function canMoveGroup(group: Group, dir: -1 | 1): boolean {
+  const idx = props.groups.findIndex((g) => g.id === group.id)
+  if (idx < 0) return false
+  const target = idx + dir
+  return target >= 0 && target < props.groups.length
+}
+
+function moveGroup(group: Group, dir: -1 | 1) {
+  if (!canMoveGroup(group, dir)) return
+  const list = [...props.groups]
+  const idx = list.findIndex((g) => g.id === group.id)
+  const target = idx + dir
+  const tmp = list[idx]
+  list[idx] = list[target]
+  list[target] = tmp
+  emit('reorder', list.map((g) => g.id))
+}
 </script>
 
 <template>
@@ -46,6 +67,19 @@ defineEmits<{
             />
           </template>
           <v-list density="compact">
+            <v-list-item
+              prepend-icon="mdi-arrow-up"
+              title="上移"
+              :disabled="!canMoveGroup(group, -1)"
+              @click="moveGroup(group, -1)"
+            />
+            <v-list-item
+              prepend-icon="mdi-arrow-down"
+              title="下移"
+              :disabled="!canMoveGroup(group, 1)"
+              @click="moveGroup(group, 1)"
+            />
+            <v-divider />
             <v-list-item
               prepend-icon="mdi-pencil"
               title="重命名"
