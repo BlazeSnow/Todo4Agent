@@ -49,6 +49,11 @@ impl ToolDef {
 pub(super) fn tools() -> Vec<ToolDef> {
     vec![
         ToolDef::new(
+            "app_version",
+            "查询应用版本号",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        ToolDef::new(
             "group_list",
             "列出所有任务分组",
             json!({ "type": "object", "properties": {} }),
@@ -145,6 +150,11 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
     let db_err = |e: rusqlite::Error| tool_error(id, format!("数据库错误: {e}"));
 
     match name {
+        "app_version" => tool_result(
+            id,
+            json!({ "name": "todo4agent", "version": env!("CARGO_PKG_VERSION") }).to_string(),
+        ),
+
         "group_list" => match db::list_groups(conn, user_id) {
             Ok(v) => tool_result(id, json!(v).to_string()),
             Err(e) => db_err(e),
@@ -293,5 +303,15 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
         },
 
         _ => tool_error(id, format!("未知工具: {name}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_version_tool_defined() {
+        assert!(tools().iter().any(|t| t.name == "app_version"));
     }
 }
