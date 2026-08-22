@@ -23,14 +23,20 @@ type SortMode = 'manual' | 'time' | 'title'
 
 const sortMode = ref<SortMode>('manual')
 const sortModeLabel = computed(
-  () => ({ manual: '手动排序（拖拽）', time: '按创建时间（新在前）', title: '按标题' })[sortMode.value],
+  () => ({ manual: '手动排序', time: '按截止时间', title: '按标题' })[sortMode.value],
 )
 
 /** 按当前排序模式展示的任务列表（不修改原始数组） */
 const displayedTasks = computed<Task[]>(() => {
   const list = [...props.tasks]
   if (sortMode.value === 'time') {
-    list.sort((a, b) => b.created_at.localeCompare(a.created_at))
+    // 按任务设置的截止时间排序：无截止时间的排最后，到期早的在前
+    list.sort((a, b) => {
+      if (a.due_at == null && b.due_at == null) return 0
+      if (a.due_at == null) return 1
+      if (b.due_at == null) return -1
+      return a.due_at.localeCompare(b.due_at)
+    })
   } else if (sortMode.value === 'title') {
     list.sort((a, b) => a.title.localeCompare(b.title, 'zh-Hans-CN'))
   }
@@ -69,8 +75,8 @@ function onDragEnd() {
 }
 
 const sortOptions: { value: SortMode; label: string }[] = [
-  { value: 'manual', label: '手动排序（拖拽）' },
-  { value: 'time', label: '按创建时间（新在前）' },
+  { value: 'manual', label: '手动排序' },
+  { value: 'time', label: '按截止时间' },
   { value: 'title', label: '按标题' },
 ]
 </script>
