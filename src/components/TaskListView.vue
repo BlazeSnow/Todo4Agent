@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Task } from '../types'
+import ContextMenu, { type ContextMenuItem } from './ContextMenu.vue'
 
 const props = defineProps<{
   tasks: Task[]
@@ -73,6 +74,50 @@ function moveTask(task: Task, dir: -1 | 1) {
   emit('reorder', list.map((t) => t.id))
 }
 
+// ---------- 右键菜单 ----------
+
+const taskCtx = ref<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
+
+function openTaskCtx(task: Task, e: MouseEvent) {
+  e.preventDefault()
+  taskCtx.value = {
+    x: e.clientX,
+    y: e.clientY,
+    items: [
+      {
+        label: task.status === 'done' ? '标记未完成' : '标记完成',
+        icon: 'mdi-check',
+        action: () => emit('toggle', task),
+      },
+      // 非默认排序下移动无意义，与「更多操作」菜单保持一致
+      ...(sortMode.value === null
+        ? [
+            {
+              label: '上移',
+              icon: 'mdi-arrow-up',
+              disabled: !canMove(task, -1),
+              action: () => moveTask(task, -1),
+            },
+            {
+              label: '下移',
+              icon: 'mdi-arrow-down',
+              disabled: !canMove(task, 1),
+              action: () => moveTask(task, 1),
+            },
+          ]
+        : []),
+      { divider: true },
+      { label: '编辑', icon: 'mdi-pencil', action: () => emit('edit', task) },
+      {
+        label: '删除',
+        icon: 'mdi-delete',
+        color: 'error',
+        action: () => emit('remove', task),
+      },
+    ],
+  }
+}
+
 const sortOptions: { value: SortMode | null; label: string }[] = [
   { value: null, label: '默认顺序' },
   { value: 'time', label: '按截止时间' },
@@ -126,7 +171,7 @@ function overdue(task: Task): boolean {
     <div v-if="loading" class="list-loading" />
 
     <!-- 任务卡片（原生结构，便于后续界面优化） -->
-    <div class="task-item" v-for="task in displayedTasks" :key="task.id">
+    <div class="task-item" v-for="task in displayedTasks" :key="task.id" @contextmenu.stop="openTaskCtx(task, $event)">
       <input
         type="checkbox"
         class="task-check"
@@ -193,6 +238,14 @@ function overdue(task: Task): boolean {
       <div class="empty-title">暂无任务</div>
       <div class="empty-text">点击右上角「新建任务」，或让 Agent 通过 MCP 添加</div>
     </div>
+
+    <ContextMenu
+      v-if="taskCtx"
+      :items="taskCtx.items"
+      :x="taskCtx.x"
+      :y="taskCtx.y"
+      @close="taskCtx = null"
+    />
   </div>
 </template>
 
@@ -252,7 +305,7 @@ function overdue(task: Task): boolean {
   gap: 12px;
   padding: 12px 16px;
   margin-bottom: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
   border-radius: 8px;
   background: rgb(var(--v-theme-surface));
   transition: border-color 0.15s ease;
@@ -285,11 +338,11 @@ function overdue(task: Task): boolean {
 }
 .task-title.struck {
   text-decoration: line-through;
-  color: rgba(0, 0, 0, 0.45);
+  color: rgba(var(--v-theme-on-surface), 0.45);
 }
 .task-desc {
   font-size: 13px;
-  color: rgba(0, 0, 0, 0.6);
+  color: rgba(var(--v-theme-on-surface), 0.6);
   white-space: pre-wrap;
   word-break: break-word;
   margin-top: 2px;
@@ -302,8 +355,8 @@ function overdue(task: Task): boolean {
   padding: 2px 10px;
   font-size: 12px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.06);
-  color: rgba(0, 0, 0, 0.7);
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.7);
 }
 .task-due .mdi {
   font-size: 13px;
@@ -326,7 +379,7 @@ function overdue(task: Task): boolean {
   align-items: center;
   gap: 4px;
   padding: 48px 0;
-  color: rgba(0, 0, 0, 0.4);
+  color: rgba(var(--v-theme-on-surface), 0.4);
 }
 .empty-state .mdi {
   font-size: 48px;
@@ -335,7 +388,7 @@ function overdue(task: Task): boolean {
 .empty-title {
   font-size: 15px;
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.6);
+  color: rgba(var(--v-theme-on-surface), 0.6);
 }
 .empty-text {
   font-size: 13px;

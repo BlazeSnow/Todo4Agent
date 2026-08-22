@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 import GroupSidebar from './components/GroupSidebar.vue'
+import ContextMenu, { type ContextMenuItem } from './components/ContextMenu.vue'
 import GroupDialog from './components/GroupDialog.vue'
 import TaskDialog from './components/TaskDialog.vue'
 import TaskListView from './components/TaskListView.vue'
@@ -159,6 +160,13 @@ async function loadTasks() {
 }
 
 watch(selectedGroupId, loadTasks)
+
+/** 手动刷新：重载分组与当前视图数据（MCP 等外部修改后同步界面） */
+async function refresh() {
+  await loadGroups()
+  if (selectedGroupId.value != null) await loadTasks()
+  if (currentView.value === 'trash') await loadTrash()
+}
 
 const authReady = computed(() => authState.value !== 'loading')
 
@@ -373,6 +381,33 @@ async function onImported() {
   await Promise.all([loadGroups(), loadTrash()])
   if (selectedGroupId.value != null) await loadTasks()
 }
+
+// ---------- 全局右键菜单（接管浏览器默认菜单） ----------
+
+const globalCtx = ref<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
+
+function onGlobalContextMenu(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  // 输入类元素保留 WebView2 原生的复制/粘贴菜单
+  if (target.closest('input, textarea, [contenteditable="true"]')) return
+  e.preventDefault()
+  globalCtx.value = {
+    x: e.clientX,
+    y: e.clientY,
+    items: [
+      {
+        label: '新建任务',
+        icon: 'mdi-plus',
+        disabled: currentView.value !== 'tasks' || selectedGroupId.value == null,
+        action: openCreateTask,
+      },
+      { label: '刷新', icon: 'mdi-refresh', action: () => refresh() },
+    ],
+  }
+}
+
+onMounted(() => window.addEventListener('contextmenu', onGlobalContextMenu))
+onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextMenu))
 </script>
 
 <template>
@@ -397,13 +432,13 @@ async function onImported() {
         />
       </template>
       <v-app-bar-title>
-        <v-icon icon="mdi-checkbox-marked-circle-outline" class="mr-2" />
+        <img src="/icon.svg" alt="Todo4Agent" class="app-logo" />
         Todo4Agent
         <span class="text-body-2 text-medium-emphasis ml-2">
           为 Agent 设计的 MCP 任务清单
         </span>
       </v-app-bar-title>
-      <v-btn variant="text" prepend-icon="mdi-refresh" @click="loadGroups">刷新</v-btn>
+      <v-btn variant="text" prepend-icon="mdi-refresh" @click="refresh">刷新</v-btn>
     </v-app-bar>
 
     <v-navigation-drawer
@@ -449,7 +484,6 @@ async function onImported() {
           @exported="notifyExported"
           @imported="onImported"
           @logout="onLogout"
-          @auth-changed="initAuth"
           @error="notify"
           @notify="notify"
         />
@@ -485,6 +519,23 @@ async function onImported() {
     <v-snackbar v-model="snackbar.show" :timeout="3000" location="bottom">
       {{ snackbar.text }}
     </v-snackbar>
+
+    <ContextMenu
+      v-if="globalCtx"
+      :items="globalCtx.items"
+      :x="globalCtx.x"
+      :y="globalCtx.y"
+      @close="globalCtx = null"
+    />
     </template>
   </v-app>
 </template>
+
+<style scoped>
+.app-logo {
+  width: 24px;
+  height: 24px;
+  margin-right: 8px;
+  vertical-align: text-bottom;
+}
+</style>
