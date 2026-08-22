@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { downloadExport, exportDoc, getSettings, updateSettings } from '../api'
+import { downloadExport, exportDoc, getSettings, importDoc, updateSettings } from '../api'
+import type { ExportDoc } from '../types'
 import packageJson from '../../package.json'
 
 const emit = defineEmits<{
   (e: 'exported'): void
+  (e: 'imported'): void
   (e: 'error', msg: string): void
   (e: 'notify', msg: string): void
 }>()
 
 const exporting = ref(false)
+const importing = ref(false)
 
 async function onExport() {
   exporting.value = true
@@ -22,6 +25,39 @@ async function onExport() {
   } finally {
     exporting.value = false
   }
+}
+
+/** 选择本地 JSON 文件并导入 */
+function onPickImport() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json,application/json'
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file) return
+    let doc: ExportDoc
+    try {
+      doc = JSON.parse(await file.text())
+      if (!Array.isArray(doc.groups)) throw new Error('缺少 groups 字段')
+    } catch (e) {
+      emit('error', '文件不是有效的 Todo4Agent 导出 JSON')
+      return
+    }
+    importing.value = true
+    try {
+      const r = await importDoc(doc)
+      emit('imported')
+      emit(
+        'notify',
+        `导入完成：新建 ${r.groups_created} 组、并入 ${r.groups_merged} 组、导入 ${r.tasks_imported} 个任务${r.tasks_skipped ? `、跳过 ${r.tasks_skipped} 个空任务` : ''}`,
+      )
+    } catch (e) {
+      emit('error', (e as Error).message)
+    } finally {
+      importing.value = false
+    }
+  }
+  input.click()
 }
 
 // ---------- 服务端口 ----------
@@ -92,11 +128,26 @@ async function savePort() {
     <v-card variant="outlined" class="mb-4">
       <v-card-title>数据</v-card-title>
       <v-card-text>
-        <v-btn color="primary" prepend-icon="mdi-export-variant" :loading="exporting" @click="onExport">
-          导出 JSON
-        </v-btn>
+        <div class="d-flex align-center ga-3">
+          <v-btn
+            color="primary"
+            prepend-icon="mdi-export-variant"
+            :loading="exporting"
+            @click="onExport"
+          >
+            导出 JSON
+          </v-btn>
+          <v-btn
+            variant="tonal"
+            prepend-icon="mdi-import"
+            :loading="importing"
+            @click="onPickImport"
+          >
+            导入 JSON
+          </v-btn>
+        </div>
         <p class="text-caption mt-2 text-medium-emphasis">
-          将全部任务清单导出为 JSON 文件，便于备份或迁移。
+          导出全部任务清单为 JSON 文件，便于备份或迁移；导入时同名分组会并入（任务追加），新分组新建。
         </p>
       </v-card-text>
     </v-card>

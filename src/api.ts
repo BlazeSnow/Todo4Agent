@@ -104,6 +104,14 @@ export async function exportDoc(): Promise<ExportDoc> {
   return request<ExportDoc>('/export')
 }
 
+/** 导入 JSON（同名分组并入，新分组新建） */
+export function importDoc(doc: ExportDoc): Promise<ImportResult> {
+  return request<ImportResult>('/import', {
+    method: 'POST',
+    body: JSON.stringify(doc),
+  })
+}
+
 // ---------- 设置 ----------
 
 export function getSettings(): Promise<SettingsInfo> {

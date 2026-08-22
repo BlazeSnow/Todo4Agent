@@ -34,20 +34,20 @@ pub struct Task {
 }
 
 /// 导出文档结构（与前端约定一致)
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportDoc {
     pub version: u32,
     pub exported_at: String,
     pub groups: Vec<ExportGroup>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportGroup {
     pub name: String,
     pub tasks: Vec<ExportTask>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportTask {
     pub title: String,
     pub description: String,
@@ -514,6 +514,75 @@ pub fn export_all(conn: &Connection) -> SqlResult<ExportDoc> {
     })
 }
 
+// ---------- 导入 ----------
+
+/// 导入结果统计
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportResult {
+    pub groups_created: usize,
+    pub groups_merged: usize,
+    pub tasks_imported: usize,
+    pub tasks_skipped: usize,
+}
+
+/// 导入导出文档：同名分组并入（任务追加），新分组新建；任务全部新增
+pub fn import_doc(conn: &Connection, doc: &ExportDoc) -> SqlResult<ImportResult> {
+    let mut result = ImportResult {
+        groups_created: 0,
+        groups_merged: 0,
+        tasks_imported: 0,
+        tasks_skipped: 0,
+    };
+
+    // 先收集现有分组名（含回收站中同名的也视为占用，避免 UNIQUE 冲突）
+    let groups = list_groups(conn)?;
+    let mut name_map: std::collections::HashMap<String, i64> = groups
+        .iter()
+        .map(|g| (g.name.clone(), g.id))
+        .collect();
+
+    for g in &doc.groups {
+        let name = g.name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let group_id = match name_map.get(name) {
+            Some(id) => {
+                result.groups_merged += 1;
+                *id
+            }
+            None => {
+                let group = create_group(conn, name)?;
+                result.groups_created += 1;
+                name_map.insert(name.to_string(), group.id);
+                group.id
+            }
+        };
+
+        for t in &g.tasks {
+            let title = t.title.trim();
+            if title.is_empty() {
+                result.tasks_skipped += 1;
+                continue;
+            }
+            // 已完成任务导入后保持完成状态
+            let task = create_task(conn, group_id, title, t.description.trim(), t.due_at.as_deref())?;
+            if t.status == "done" {
+                let _ = update_task(
+                    conn,
+                    task.id,
+                    &TaskUpdate {
+                        status: Some("done".to_string()),
+                        ..Default::default()
+                    },
+                );
+            }
+            result.tasks_imported += 1;
+        }
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -692,6 +761,69 @@ mod tests {
         // 覆盖更新
         set_setting(&c, SETTINGS_PORT_KEY, "9001").unwrap();
         assert_eq!(get_port_setting(&c).unwrap(), 9001);
+    }
+
+    #[test]
+    fn import_doc_merge() {
+        let c = test_conn();
+        // 预置数据：快速清单已存在（默认播种）
+        let gid = list_groups(&c).unwrap()[0].id;
+        create_task(&c, gid, "原有任务", "", None).unwrap();
+
+        let doc = ExportDoc {
+            version: 1,
+            exported_at: "2026-08-22T00:00:00Z".to_string(),
+            groups: vec![
+                ExportGroup {
+                    name: DEFAULT_GROUP.to_string(), // 同名 → 并入快速清单
+                    tasks: vec![
+                        ExportTask {
+                            title: "导入任务1".to_string(),
+                            description: "说明".to_string(),
+                            status: "done".to_string(),
+                            due_at: Some("2026-09-01T00:00:00Z".to_string()),
+                        },
+                        ExportTask {
+                            title: "导入任务2".to_string(),
+                            description: String::new(),
+                            status: "pending".to_string(),
+                            due_at: None,
+                        },
+                        ExportTask {
+                            title: "  ".to_string(), // 空标题 → 跳过
+                            description: String::new(),
+                            status: "pending".to_string(),
+                            due_at: None,
+                        },
+                    ],
+                },
+                ExportGroup {
+                    name: "新分组".to_string(), // 新名字 → 新建
+                    tasks: vec![ExportTask {
+                        title: "新组任务".to_string(),
+                        description: String::new(),
+                        status: "pending".to_string(),
+                        due_at: None,
+                    }],
+                },
+            ],
+        };
+
+        let r = import_doc(&c, &doc).unwrap();
+        assert_eq!(r.groups_created, 1);
+        assert_eq!(r.groups_merged, 1);
+        assert_eq!(r.tasks_imported, 3);
+        assert_eq!(r.tasks_skipped, 1);
+
+        // 快速清单：原有 + 2 个导入任务，且导入任务保持 done 状态
+        let tasks = list_tasks(&c, Some(gid)).unwrap();
+        assert_eq!(tasks.len(), 3);
+        assert!(tasks.iter().any(|t| t.title == "导入任务1" && t.status == "done"));
+
+        // 新分组
+        let groups = list_groups(&c).unwrap();
+        let new_g = groups.iter().find(|g| g.name == "新分组").unwrap();
+        assert_eq!(list_tasks(&c, Some(new_g.id)).unwrap().len(), 1);
     }
 
     #[test]

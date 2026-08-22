@@ -222,6 +222,18 @@ async fn export_json(State(st): State<SharedState>) -> ApiResult {
     }
 }
 
+/// 导入 JSON（同名分组并入，新分组新建）
+async fn import_json(State(st): State<SharedState>, Json(doc): Json<db::ExportDoc>) -> ApiResult {
+    if doc.groups.is_empty() {
+        return err(StatusCode::BAD_REQUEST, "导入内容为空");
+    }
+    let c = st.db.lock().unwrap();
+    match db::import_doc(&c, &doc) {
+        Ok(r) => ok_json(serde_json::to_value(r).unwrap()),
+        Err(e) => internal(e),
+    }
+}
+
 // ---------- 回收站 ----------
 
 async fn get_trash(State(st): State<SharedState>) -> ApiResult {
@@ -321,6 +333,7 @@ fn api_router(state: SharedState) -> Router {
         .route("/tasks/{id}/purge", delete(purge_task))
         .route("/trash", get(get_trash).delete(empty_trash))
         .route("/export", get(export_json))
+        .route("/import", post(import_json))
         .route("/settings", get(get_settings).patch(update_settings))
         .with_state(state)
 }

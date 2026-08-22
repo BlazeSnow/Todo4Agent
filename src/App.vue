@@ -315,6 +315,12 @@ function onEmptyTrash() {
 function notifyExported() {
   notify('已导出 JSON')
 }
+
+/** 导入完成后刷新各视图数据 */
+async function onImported() {
+  await Promise.all([loadGroups(), loadTrash()])
+  if (selectedGroupId.value != null) await loadTasks()
+}
 </script>
 
 <template>
@@ -379,6 +385,7 @@ function notifyExported() {
         <SettingsView
           v-else-if="currentView === 'settings'"
           @exported="notifyExported"
+          @imported="onImported"
           @error="notify"
           @notify="notify"
         />

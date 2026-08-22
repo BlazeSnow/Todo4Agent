@@ -66,3 +66,11 @@ export interface SettingsInfo {
   /** 当前实际监听的端口 */
   effective_port: number
 }
+
+/** 导入结果统计 */
+export interface ImportResult {
+  groups_created: number
+  groups_merged: number
+  tasks_imported: number
+  tasks_skipped: number
+}
