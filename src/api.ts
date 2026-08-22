@@ -1,10 +1,29 @@
-import type { ExportDoc, Group, Task, TaskInput, TaskUpdate } from './types'
+import type { AuthStatus, ExportDoc, Group, Task, TaskInput, TaskUpdate } from './types'
+
+const TOKEN_KEY = 'todo4agent_token'
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setToken(token: string | null): void {
+  if (token) localStorage.setItem(TOKEN_KEY, token)
+  else localStorage.removeItem(TOKEN_KEY)
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  })
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  // 禁用浏览器缓存：认证状态与数据接口必须实时（避免 GET 被启发式缓存）
+  const res = await fetch(`/api${path}`, { cache: 'no-store', headers, ...init })
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    // 会话失效：清除 token，由 App 切换到登录界面
+    setToken(null)
+    const err = new Error('登录已失效，请重新登录') as Error & { status: number }
+    err.status = 401
+    throw err
+  }
   if (!res.ok) {
     let message = `HTTP ${res.status}`
     try {
@@ -16,6 +35,37 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(message)
   }
   return res.json() as Promise<T>
+}
+
+// ---------- 认证 / 用户 ----------
+
+export function authStatus(): Promise<AuthStatus> {
+  return request<AuthStatus>('/auth/status')
+}
+
+export function authLogin(username: string, password: string) {
+  return request<{ token: string; user_id: number; username: string }>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  })
+}
+
+export function authRegister(username: string, password: string) {
+  return request<{ token: string; user_id: number; username: string }>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  })
+}
+
+export function authLogout(): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('/auth/logout', { method: 'POST' })
+}
+
+export function authChangePassword(oldPassword: string, newPassword: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('/auth/password', {
+    method: 'POST',
+    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+  })
 }
 
 export async function listGroups(): Promise<Group[]> {

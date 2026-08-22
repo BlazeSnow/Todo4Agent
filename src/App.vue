@@ -9,7 +9,10 @@ import ConfirmDialog from './components/ConfirmDialog.vue'
 import SettingsView from './components/SettingsView.vue'
 import MCPView from './components/MCPView.vue'
 import TrashView from './components/TrashView.vue'
+import LoginView from './components/LoginView.vue'
 import {
+  authLogout,
+  authStatus,
   createGroup,
   createTask,
   deleteGroup,
@@ -25,6 +28,7 @@ import {
   reorderTasks,
   restoreGroup,
   restoreTask,
+  setToken,
   updateTask,
 } from './api'
 import type { Group, Task, TaskInput } from './types'
@@ -54,6 +58,46 @@ const confirmDialog = ref(false)
 type TrashAction = 'group' | 'task' | 'purgeGroup' | 'purgeTask' | 'emptyTrash'
 const confirmAction = ref<{ type: TrashAction; id?: number } | null>(null)
 const currentView = ref<'tasks' | 'settings' | 'mcp' | 'trash'>('tasks')
+
+// ---------- 认证门控 ----------
+
+type AuthState = 'loading' | 'local' | 'guest' | 'ready'
+const authState = ref<AuthState>('loading')
+const currentUser = ref<string | null>(null)
+
+/** 校验当前会话：本地模式直接进入；多用户模式需有效 token */
+async function initAuth() {
+  try {
+    const s = await authStatus()
+    if (s.mode === 'local') {
+      authState.value = 'local'
+    } else if (s.user_id != null) {
+      currentUser.value = s.username
+      authState.value = 'ready'
+    } else {
+      authState.value = 'guest'
+    }
+  } catch {
+    authState.value = 'guest'
+  }
+}
+
+function onLoggedIn(username: string) {
+  currentUser.value = username
+  authState.value = 'ready'
+  loadGroups()
+}
+
+async function onLogout() {
+  try {
+    await authLogout()
+  } catch {
+    // 忽略登出接口异常，本地 token 仍清除
+  }
+  setToken(null)
+  currentUser.value = null
+  authState.value = 'guest'
+}
 
 // 回收站
 const trashGroups = ref<Group[]>([])
@@ -115,7 +159,15 @@ async function loadTasks() {
 }
 
 watch(selectedGroupId, loadTasks)
-onMounted(loadGroups)
+
+const authReady = computed(() => authState.value !== 'loading')
+
+onMounted(async () => {
+  await initAuth()
+  if (authState.value !== 'guest') {
+    await loadGroups()
+  }
+})
 
 // ---------- 分组 ----------
 
@@ -325,6 +377,15 @@ async function onImported() {
 
 <template>
   <v-app>
+    <v-progress-linear v-if="authState === 'loading'" indeterminate />
+
+    <LoginView
+      v-else-if="authState === 'guest'"
+      @logged-in="onLoggedIn"
+      @error="notify"
+    />
+
+    <template v-else>
     <v-app-bar app>
       <template #prepend>
         <v-btn
@@ -384,8 +445,11 @@ async function onImported() {
         />
         <SettingsView
           v-else-if="currentView === 'settings'"
+          :current-user="currentUser"
           @exported="notifyExported"
           @imported="onImported"
+          @logout="onLogout"
+          @auth-changed="initAuth"
           @error="notify"
           @notify="notify"
         />
@@ -421,5 +485,6 @@ async function onImported() {
     <v-snackbar v-model="snackbar.show" :timeout="3000" location="bottom">
       {{ snackbar.text }}
     </v-snackbar>
+    </template>
   </v-app>
 </template>

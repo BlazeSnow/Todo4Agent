@@ -21,3 +21,5 @@ tower = { version = "0.5", features = ["util"] }
 chrono = { version = "0.4" }
 dirs = "6"
 rust-embed = { version = "8", features = ["mime-guess"] }
+sha2 = "0.10"
+rand = "0.9"

@@ -173,11 +173,11 @@ fn arg_opt_i64(args: &Value, key: &str) -> Result<Option<i64>, String> {
     }
 }
 
-fn call_tool(name: &str, args: &Value, conn: &Connection, id: &Value) {
+fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Option<i64>, id: &Value) {
     let db_err = |e: rusqlite::Error| tool_error(id, format!("数据库错误: {e}"));
 
     match name {
-        "group_list" => match db::list_groups(conn) {
+        "group_list" => match db::list_groups(conn, user_id) {
             Ok(v) => tool_result(id, json!(v).to_string()),
             Err(e) => db_err(e),
         },
@@ -187,7 +187,7 @@ fn call_tool(name: &str, args: &Value, conn: &Connection, id: &Value) {
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
-            match db::create_group(conn, &name) {
+            match db::create_group(conn, user_id, &name) {
                 Ok(g) => tool_result(id, json!(g).to_string()),
                 Err(e) if db::is_unique_violation(&e) => tool_error(id, "分组名已存在".into()),
                 Err(e) => db_err(e),
@@ -203,7 +203,7 @@ fn call_tool(name: &str, args: &Value, conn: &Connection, id: &Value) {
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
-            match db::rename_group(conn, gid, &name) {
+            match db::rename_group(conn, user_id, gid, &name) {
                 Ok(Some(g)) => tool_result(id, json!(g).to_string()),
                 Ok(None) => tool_error(id, "分组不存在".into()),
                 Err(e) if db::is_unique_violation(&e) => tool_error(id, "分组名已存在".into()),
@@ -216,7 +216,7 @@ fn call_tool(name: &str, args: &Value, conn: &Connection, id: &Value) {
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
-            match db::list_tasks(conn, gid) {
+            match db::list_tasks(conn, user_id, gid) {
                 Ok(v) => tool_result(id, json!(v).to_string()),
                 Err(e) => db_err(e),
             }
@@ -237,7 +237,7 @@ fn call_tool(name: &str, args: &Value, conn: &Connection, id: &Value) {
                 .unwrap_or("")
                 .to_string();
             let due_at = args.get("due_at").and_then(Value::as_str).map(String::from);
-            match db::create_task(conn, gid, &title, &description, due_at.as_deref()) {
+            match db::create_task(conn, user_id, gid, &title, &description, due_at.as_deref()) {
                 Ok(t) => tool_result(id, json!(t).to_string()),
                 Err(e) if db::is_unique_violation(&e) => tool_error(id, "分组不存在".into()),
                 Err(e) => db_err(e),
@@ -280,7 +280,7 @@ fn call_tool(name: &str, args: &Value, conn: &Connection, id: &Value) {
                 Some(Value::String(s)) => patch.due_at = Some(Some(s.clone())),
                 Some(_) => return tool_error(id, "参数错误: due_at 必须是字符串或 null".into()),
             }
-            match db::update_task(conn, tid, &patch) {
+            match db::update_task(conn, user_id, tid, &patch) {
                 Ok(Some(t)) => tool_result(id, json!(t).to_string()),
                 Ok(None) => tool_error(id, "任务不存在".into()),
                 Err(e) => db_err(e),
@@ -300,7 +300,7 @@ fn call_tool(name: &str, args: &Value, conn: &Connection, id: &Value) {
                 status: Some(if done { "done" } else { "pending" }.to_string()),
                 ..Default::default()
             };
-            match db::update_task(conn, tid, &patch) {
+            match db::update_task(conn, user_id, tid, &patch) {
                 Ok(Some(t)) => tool_result(id, json!(t).to_string()),
                 Ok(None) => tool_error(id, "任务不存在".into()),
                 Err(e) => db_err(e),
@@ -312,14 +312,14 @@ fn call_tool(name: &str, args: &Value, conn: &Connection, id: &Value) {
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
-            match db::delete_task(conn, tid) {
+            match db::delete_task(conn, user_id, tid) {
                 Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
                 Ok(false) => tool_error(id, "任务不存在".into()),
                 Err(e) => db_err(e),
             }
         }
 
-        "task_export" => match db::export_all(conn) {
+        "task_export" => match db::export_all(conn, user_id) {
             Ok(doc) => tool_result(id, serde_json::to_string(&doc).unwrap_or_else(|e| e.to_string())),
             Err(e) => db_err(e),
         },
@@ -328,7 +328,7 @@ fn call_tool(name: &str, args: &Value, conn: &Connection, id: &Value) {
     }
 }
 
-fn handle(msg: &Value, conn: &Connection) {
+fn handle(msg: &Value, conn: &Connection, user_id: Option<i64>) {
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
     let method = msg
         .get("method")
@@ -378,15 +378,22 @@ fn handle(msg: &Value, conn: &Connection) {
                 .pointer("/params/arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            call_tool(&name, &args, conn, &id);
+            call_tool(&name, &args, conn, user_id, &id);
         }
         "" => respond_error(&id, -32601, "Method not found"),
         _ => respond_error(&id, -32601, "Method not found"),
     }
 }
 
-/// 主循环：逐行读取 stdin 的 JSON-RPC 消息并应答
+/// 主循环：逐行读取 stdin 的 JSON-RPC 消息并应答。
+/// 多用户模式下 MCP 绑定第一个用户（本机主用户视角操作数据）；未创建用户时为本地模式。
 pub fn serve(conn: &Connection) {
+    // 本机主用户 = 第一个注册的用户；无用户 → 本地模式（无主数据）
+    let user_id = db::list_users(conn)
+        .ok()
+        .and_then(|users| users.into_iter().next())
+        .map(|u| u.id);
+
     let stdin = std::io::stdin();
     let mut line = String::new();
     loop {
@@ -414,6 +421,6 @@ pub fn serve(conn: &Connection) {
                 continue;
             }
         };
-        handle(&msg, conn);
+        handle(&msg, conn, user_id);
     }
 }

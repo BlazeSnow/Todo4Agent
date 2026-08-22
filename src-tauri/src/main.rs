@@ -5,6 +5,7 @@
 //! - `mcp`：MCP stdio 服务（供 Agent 连接操作任务清单）
 
 mod api;
+mod auth;
 mod db;
 mod mcp;
 

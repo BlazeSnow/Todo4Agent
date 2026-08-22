@@ -1,12 +1,27 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { downloadExport, exportDoc, getSettings, importDoc, updateSettings } from '../api'
+import {
+  authChangePassword,
+  authRegister,
+  downloadExport,
+  exportDoc,
+  getSettings,
+  importDoc,
+  updateSettings,
+} from '../api'
 import type { ExportDoc } from '../types'
 import packageJson from '../../package.json'
+
+const props = defineProps<{
+  /** 当前登录用户名（本地模式为 null） */
+  currentUser: string | null
+}>()
 
 const emit = defineEmits<{
   (e: 'exported'): void
   (e: 'imported'): void
+  (e: 'logout'): void
+  (e: 'authChanged'): void
   (e: 'error', msg: string): void
   (e: 'notify', msg: string): void
 }>()
@@ -93,6 +108,49 @@ async function savePort() {
     savingPort.value = false
   }
 }
+
+// ---------- 用户 ----------
+
+const newUser = ref('')
+const newPass = ref('')
+const registering = ref(false)
+
+async function registerUser() {
+  const name = newUser.value.trim()
+  if (!name || newPass.value.length < 4) return
+  registering.value = true
+  try {
+    await authRegister(name, newPass.value)
+    emit('notify', `用户「${name}」已创建`)
+    // 系统可能刚进入多用户模式（首个用户），重新校验认证状态
+    emit('authChanged')
+    newUser.value = ''
+    newPass.value = ''
+  } catch (e) {
+    emit('error', (e as Error).message)
+  } finally {
+    registering.value = false
+  }
+}
+
+const oldPass = ref('')
+const newPass2 = ref('')
+const changingPass = ref(false)
+
+async function changePassword() {
+  if (oldPass.value.length < 4 || newPass2.value.length < 4) return
+  changingPass.value = true
+  try {
+    await authChangePassword(oldPass.value, newPass2.value)
+    emit('notify', '密码已修改')
+    oldPass.value = ''
+    newPass2.value = ''
+  } catch (e) {
+    emit('error', (e as Error).message)
+  } finally {
+    changingPass.value = false
+  }
+}
 </script>
 
 <template>
@@ -122,6 +180,80 @@ async function savePort() {
             修改后需重启应用生效
           </span>
         </div>
+      </v-card-text>
+    </v-card>
+
+    <v-card variant="outlined" class="mb-4">
+      <v-card-title>用户</v-card-title>
+      <v-card-text>
+        <div class="d-flex align-center mb-3">
+          <v-icon icon="mdi-account-circle" class="mr-2" color="primary" />
+          <span class="text-body-1">当前用户：{{ currentUser ?? '未登录（本地模式）' }}</span>
+          <v-spacer />
+          <v-btn
+            v-if="currentUser"
+            variant="tonal"
+            prepend-icon="mdi-logout"
+            @click="$emit('logout')"
+          >
+            退出登录
+          </v-btn>
+        </div>
+
+        <v-divider class="my-3" />
+
+        <div class="text-subtitle-2 mb-2">注册新用户</div>
+        <v-text-field
+          v-model="newUser"
+          label="用户名"
+          class="mb-2"
+          hide-details="auto"
+        />
+        <v-text-field
+          v-model="newPass"
+          label="密码（至少 4 位）"
+          type="password"
+          class="mb-2"
+          hide-details="auto"
+        />
+        <v-btn
+          color="primary"
+          variant="tonal"
+          :loading="registering"
+          :disabled="!newUser.trim() || newPass.length < 4"
+          @click="registerUser"
+        >
+          创建用户
+        </v-btn>
+        <p class="text-caption mt-2 text-medium-emphasis">
+          首个用户将接管当前本地数据；之后注册的用户拥有独立数据空间。
+        </p>
+
+        <v-divider class="my-3" />
+
+        <div class="text-subtitle-2 mb-2">修改密码</div>
+        <v-text-field
+          v-model="oldPass"
+          label="原密码"
+          type="password"
+          class="mb-2"
+          hide-details="auto"
+        />
+        <v-text-field
+          v-model="newPass2"
+          label="新密码（至少 4 位）"
+          type="password"
+          class="mb-2"
+          hide-details="auto"
+        />
+        <v-btn
+          variant="tonal"
+          :loading="changingPass"
+          :disabled="oldPass.length < 4 || newPass2.length < 4"
+          @click="changePassword"
+        >
+          修改密码
+        </v-btn>
       </v-card-text>
     </v-card>
 
