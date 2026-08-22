@@ -6,6 +6,8 @@ const props = defineProps<{
   modelValue: boolean
   task: Task | null
   groups: Group[]
+  /** 新建任务时默认选中的分组（当前界面上选中的分组） */
+  defaultGroupId: number | null
 }>()
 
 const emit = defineEmits<{
@@ -34,7 +36,7 @@ watch(
     title.value = t?.title ?? ''
     description.value = t?.description ?? ''
     dueLocal.value = t?.due_at ? isoToLocal(t.due_at) : ''
-    groupId.value = t?.group_id ?? props.groups[0]?.id ?? null
+    groupId.value = t?.group_id ?? props.defaultGroupId ?? props.groups[0]?.id ?? null
   },
 )
 

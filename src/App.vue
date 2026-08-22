@@ -327,7 +327,13 @@ function overdue(task: Task): boolean {
       </v-container>
     </v-main>
 
-    <TaskDialog v-model="taskDialog" :task="editingTask" :groups="groups" @save="onTaskDialogSave" />
+    <TaskDialog
+      v-model="taskDialog"
+      :task="editingTask"
+      :groups="groups"
+      :default-group-id="selectedGroupId"
+      @save="onTaskDialogSave"
+    />
     <GroupDialog
       v-model="groupDialog"
       :mode="groupDialogMode"
