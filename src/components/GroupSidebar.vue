@@ -13,6 +13,7 @@ defineEmits<{
   (e: 'rename', group: Group): void
   (e: 'delete', group: Group): void
   (e: 'mcp'): void
+  (e: 'settings'): void
 }>()
 </script>
 
@@ -69,5 +70,7 @@ defineEmits<{
       subtitle="点击查看连接说明"
       @click="$emit('mcp')"
     />
+
+    <v-list-item prepend-icon="mdi-cog-outline" title="设置" @click="$emit('settings')" />
   </v-list>
 </template>

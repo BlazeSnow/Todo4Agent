@@ -4,20 +4,18 @@ import { useDisplay } from 'vuetify'
 import GroupSidebar from './components/GroupSidebar.vue'
 import GroupDialog from './components/GroupDialog.vue'
 import TaskDialog from './components/TaskDialog.vue'
+import SettingsView from './components/SettingsView.vue'
 import {
   createGroup,
   createTask,
   deleteGroup,
   deleteTask,
-  downloadExport,
-  exportDoc,
   listGroups,
   listTasks,
   renameGroup,
   updateTask,
 } from './api'
 import type { Group, Task, TaskInput } from './types'
-import packageJson from '../package.json'
 
 const groups = ref<Group[]>([])
 const tasks = ref<Task[]>([])
@@ -43,7 +41,7 @@ const groupDialogTarget = ref<Group | null>(null)
 const confirmDialog = ref(false)
 const confirmAction = ref<{ type: 'group' | 'task'; id: number } | null>(null)
 const mcpDialog = ref(false)
-const settingsDialog = ref(false)
+const currentView = ref<'tasks' | 'settings'>('tasks')
 
 // MCP 工具清单（与后端 mcp.rs 保持一致）
 const mcpTools = [
@@ -100,6 +98,7 @@ onMounted(loadGroups)
 
 function onSelectGroup(id: number) {
   selectedGroupId.value = id
+  currentView.value = 'tasks'
 }
 
 function openCreateGroup() {
@@ -204,17 +203,10 @@ async function doConfirm() {
   confirmAction.value = null
 }
 
-// ---------- 导出 ----------
+// ---------- 导出（由设置页触发） ----------
 
-async function onExport() {
-  try {
-    const doc = await exportDoc()
-    downloadExport(doc)
-    settingsDialog.value = false
-    notify('已导出 JSON')
-  } catch (e) {
-    notify((e as Error).message)
-  }
+function notifyExported() {
+  notify('已导出 JSON')
 }
 
 // ---------- 展示辅助 ----------
@@ -261,7 +253,6 @@ async function copyMcpCommand() {
         </span>
       </v-app-bar-title>
       <v-btn variant="text" prepend-icon="mdi-refresh" @click="loadGroups">刷新</v-btn>
-      <v-btn icon="mdi-cog" variant="text" aria-label="设置" @click="settingsDialog = true" />
     </v-app-bar>
 
     <v-navigation-drawer
@@ -281,81 +272,86 @@ async function copyMcpCommand() {
         @rename="openRenameGroup"
         @delete="onDeleteGroup"
         @mcp="mcpDialog = true"
+        @settings="currentView = 'settings'"
       />
     </v-navigation-drawer>
 
     <v-main>
       <v-container fluid class="pa-4">
-        <div class="d-flex align-center mb-4">
-          <v-icon icon="mdi-folder-outline" class="mr-2" />
-          <h2 class="text-h6">{{ selectedGroup?.name ?? '未选择分组' }}</h2>
-          <v-spacer />
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateTask">
-            新建任务
-          </v-btn>
-        </div>
+        <template v-if="currentView === 'tasks'">
+          <div class="d-flex align-center mb-4">
+            <v-icon icon="mdi-folder-outline" class="mr-2" />
+            <h2 class="text-h6">{{ selectedGroup?.name ?? '未选择分组' }}</h2>
+            <v-spacer />
+            <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateTask">
+              新建任务
+            </v-btn>
+          </div>
 
-        <v-alert v-if="!selectedGroup" type="info" text="请先在左侧创建分组" />
+          <v-alert v-if="!selectedGroup" type="info" text="请先在左侧创建分组" />
 
-        <v-progress-linear v-if="loadingTasks" indeterminate class="mb-4" />
+          <v-progress-linear v-if="loadingTasks" indeterminate class="mb-4" />
 
-        <v-card
-          v-for="task in tasks"
-          :key="task.id"
-          class="mb-2"
-          variant="outlined"
-          :class="{ 'opacity-60': task.status === 'done' }"
-        >
-          <v-list-item>
-            <template #prepend>
-              <v-checkbox-btn
-                :model-value="task.status === 'done'"
-                color="success"
-                @update:model-value="onToggleTask(task)"
-              />
-            </template>
-            <v-list-item-title
-              :class="{ 'text-decoration-line-through': task.status === 'done' }"
-            >
-              {{ task.title }}
-            </v-list-item-title>
-            <v-list-item-subtitle v-if="task.description" class="text-pre-wrap">
-              {{ task.description }}
-            </v-list-item-subtitle>
-            <v-list-item-subtitle v-if="task.due_at" class="mt-1">
-              <v-chip
-                size="small"
-                variant="tonal"
-                :color="overdue(task) ? 'error' : 'default'"
+          <v-card
+            v-for="task in tasks"
+            :key="task.id"
+            class="mb-2"
+            variant="outlined"
+            :class="{ 'opacity-60': task.status === 'done' }"
+          >
+            <v-list-item>
+              <template #prepend>
+                <v-checkbox-btn
+                  :model-value="task.status === 'done'"
+                  color="success"
+                  @update:model-value="onToggleTask(task)"
+                />
+              </template>
+              <v-list-item-title
+                :class="{ 'text-decoration-line-through': task.status === 'done' }"
               >
-                <v-icon start icon="mdi-calendar" size="small" />
-                {{ formatDue(task.due_at) }}
-              </v-chip>
-            </v-list-item-subtitle>
-            <template #append>
-              <v-btn
-                icon="mdi-pencil"
-                size="small"
-                variant="text"
-                @click="openEditTask(task)"
-              />
-              <v-btn
-                icon="mdi-delete"
-                size="small"
-                variant="text"
-                color="error"
-                @click="onDeleteTask(task)"
-              />
-            </template>
-          </v-list-item>
-        </v-card>
+                {{ task.title }}
+              </v-list-item-title>
+              <v-list-item-subtitle v-if="task.description" class="text-pre-wrap">
+                {{ task.description }}
+              </v-list-item-subtitle>
+              <v-list-item-subtitle v-if="task.due_at" class="mt-1">
+                <v-chip
+                  size="small"
+                  variant="tonal"
+                  :color="overdue(task) ? 'error' : 'default'"
+                >
+                  <v-icon start icon="mdi-calendar" size="small" />
+                  {{ formatDue(task.due_at) }}
+                </v-chip>
+              </v-list-item-subtitle>
+              <template #append>
+                <v-btn
+                  icon="mdi-pencil"
+                  size="small"
+                  variant="text"
+                  @click="openEditTask(task)"
+                />
+                <v-btn
+                  icon="mdi-delete"
+                  size="small"
+                  variant="text"
+                  color="error"
+                  @click="onDeleteTask(task)"
+                />
+              </template>
+            </v-list-item>
+          </v-card>
 
-        <v-empty
-          v-if="!loadingTasks && selectedGroup && tasks.length === 0"
-          icon="mdi-inbox-outline"
-          title="暂无任务"
-          text="点击右上角「新建任务」，或让 Agent 通过 MCP 添加"
-        />
+          <v-empty
+            v-if="!loadingTasks && selectedGroup && tasks.length === 0"
+            icon="mdi-inbox-outline"
+            title="暂无任务"
+            text="点击右上角「新建任务」，或让 Agent 通过 MCP 添加"
+          />
+        </template>
+
+        <SettingsView v-else @exported="notifyExported" @error="notify" />
       </v-container>
     </v-main>
 
@@ -395,41 +391,6 @@ async function copyMcpCommand() {
           >
             删除
           </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <v-dialog v-model="settingsDialog" max-width="480">
-      <v-card>
-        <v-card-title>
-          <v-icon icon="mdi-cog-outline" class="mr-2" />
-          设置
-        </v-card-title>
-        <v-card-text>
-          <div class="text-subtitle-2 mb-2">数据</div>
-          <v-btn color="primary" prepend-icon="mdi-export-variant" @click="onExport">
-            导出 JSON
-          </v-btn>
-          <p class="text-caption mt-2 text-medium-emphasis">
-            将全部任务清单导出为 JSON 文件，便于备份或迁移。
-          </p>
-
-          <v-divider class="my-4" />
-
-          <div class="text-subtitle-2 mb-2">关于</div>
-          <v-list density="compact">
-            <v-list-item title="版本">
-              <template #append>
-                <span class="text-medium-emphasis">v{{ packageJson.version }}</span>
-              </template>
-            </v-list-item>
-            <v-list-item title="软件说明" subtitle="为 Agent 设计的 MCP 任务清单" />
-            <v-list-item title="仓库" subtitle="github.com/BlazeSnow/Todo4Agent" />
-          </v-list>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="settingsDialog = false">关闭</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
