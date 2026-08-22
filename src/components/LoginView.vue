@@ -77,6 +77,7 @@ async function doRegister() {
         <v-text-field
           v-model="username"
           label="用户名"
+          autocomplete="username"
           autofocus
           @keydown.enter="doLogin"
         />
@@ -84,6 +85,7 @@ async function doRegister() {
           v-model="password"
           label="密码（至少 4 位）"
           type="password"
+          autocomplete="current-password"
           @keydown.enter="doLogin"
         />
         <v-alert v-if="errorMsg" type="error" density="compact" class="mt-2">

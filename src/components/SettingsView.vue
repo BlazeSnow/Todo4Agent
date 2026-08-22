@@ -203,57 +203,65 @@ async function changePassword() {
         <v-divider class="my-3" />
 
         <div class="text-subtitle-2 mb-2">注册新用户</div>
-        <v-text-field
-          v-model="newUser"
-          label="用户名"
-          class="mb-2"
-          hide-details="auto"
-        />
-        <v-text-field
-          v-model="newPass"
-          label="密码（至少 4 位）"
-          type="password"
-          class="mb-2"
-          hide-details="auto"
-        />
-        <v-btn
-          color="primary"
-          variant="tonal"
-          :loading="registering"
-          :disabled="!newUser.trim() || newPass.length < 4"
-          @click="registerUser"
-        >
-          创建用户
-        </v-btn>
-        <p class="text-caption mt-2 text-medium-emphasis">
-          每个用户拥有独立的数据空间，互不可见。
-        </p>
+        <form @submit.prevent="registerUser">
+          <v-text-field
+            v-model="newUser"
+            label="用户名"
+            autocomplete="off"
+            class="mb-2"
+            hide-details="auto"
+          />
+          <v-text-field
+            v-model="newPass"
+            label="密码（至少 4 位）"
+            type="password"
+            autocomplete="new-password"
+            class="mb-2"
+            hide-details="auto"
+          />
+          <v-btn
+            type="submit"
+            color="primary"
+            variant="tonal"
+            :loading="registering"
+            :disabled="!newUser.trim() || newPass.length < 4"
+          >
+            创建用户
+          </v-btn>
+          <p class="text-caption mt-2 text-medium-emphasis">
+            每个用户拥有独立的数据空间，互不可见。
+          </p>
+        </form>
 
         <v-divider class="my-3" />
 
         <div class="text-subtitle-2 mb-2">修改密码</div>
-        <v-text-field
-          v-model="oldPass"
-          label="原密码"
-          type="password"
-          class="mb-2"
-          hide-details="auto"
-        />
-        <v-text-field
-          v-model="newPass2"
-          label="新密码（至少 4 位）"
-          type="password"
-          class="mb-2"
-          hide-details="auto"
-        />
-        <v-btn
-          variant="tonal"
-          :loading="changingPass"
-          :disabled="oldPass.length < 4 || newPass2.length < 4"
-          @click="changePassword"
-        >
-          修改密码
-        </v-btn>
+        <form @submit.prevent="changePassword">
+          <v-text-field
+            v-model="oldPass"
+            label="原密码"
+            type="password"
+            autocomplete="current-password"
+            class="mb-2"
+            hide-details="auto"
+          />
+          <v-text-field
+            v-model="newPass2"
+            label="新密码（至少 4 位）"
+            type="password"
+            autocomplete="new-password"
+            class="mb-2"
+            hide-details="auto"
+          />
+          <v-btn
+            type="submit"
+            variant="tonal"
+            :loading="changingPass"
+            :disabled="oldPass.length < 4 || newPass2.length < 4"
+          >
+            修改密码
+          </v-btn>
+        </form>
       </v-card-text>
     </v-card>
 
