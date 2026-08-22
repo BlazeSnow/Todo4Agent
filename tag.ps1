@@ -36,22 +36,32 @@ Push-Location $RepoRoot
 try {
     # 1. 确定版本号：优先用 -Tag，否则从 package.json 的 version 字段读取（原样使用）
     if (-not $Tag) {
-        $pkg = Get-Content (Join-Path $RepoRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-        $version = $pkg.version
+        # 从 VERSION 文件读取版本，并同步到 package.json / tauri.conf.json（含 Windows MSI 数字版本）
+        $version = (Get-Content (Join-Path $RepoRoot 'VERSION') -Raw -Encoding UTF8).Trim()
         if (-not $version) {
-            throw 'package.json 中缺少 version 字段，请先填写或用 -Tag 显式指定。'
+            throw 'VERSION 文件中缺少版本号，请先填写或用 -Tag 显式指定。'
         }
+        if ($version -notmatch '^\d+\.\d+\.\d+(-beta\.\d+)?$') {
+            throw "VERSION 文件格式不正确：$version（应为 X.Y.Z 或 X.Y.Z-beta.N，例如 1.0.0、1.0.0-beta.2）"
+        }
+        # wix.version：MSI 数字版本，beta 序号映射到第 4 段（1.0.0-beta.1 -> 1.0.0.1）
+        $wixVersion = if ($version -match '^(.*)-beta\.(\d+)$') { "$($Matches[1]).$($Matches[2])" } else { $version }
+        $nodeScript = @'
+const fs = require('fs');
+const ver = process.argv[1], wix = process.argv[2];
+const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+p.version = ver;
+fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + String.fromCharCode(10));
+const t = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+t.version = ver;
+t.bundle.windows.wix.version = wix;
+fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(t, null, 2) + String.fromCharCode(10));
+'@
+        node -e $nodeScript $version $wixVersion
+        if ($LASTEXITCODE -ne 0) { throw '同步版本到 package.json / tauri.conf.json 失败' }
         $Tag = 'v' + $version
-        Write-Host "从 package.json 读取到版本：$version"
-    }
-
-    # 2. 校验格式：vX.Y.Z 或 vX.Y.Z-beta.N（-beta.N 保留，正式版/测试版由版本号本身决定）
-    # 版本一致性校验：package.json 与 tauri.conf.json 必须一致
-    #（打包产物的版本取自 tauri.conf.json，缺失同步会导致安装包版本与 tag 不符）
-    $pkgVersion = (Get-Content (Join-Path $RepoRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
-    $tauriCfg = Get-Content (Join-Path $RepoRoot 'src-tauri/tauri.conf.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($pkgVersion -ne $tauriCfg.version) {
-        throw "版本不一致：package.json 为 $pkgVersion，tauri.conf.json 为 $($tauriCfg.version)。请先同步两处版本后再打 tag。"
+        Write-Host "从 VERSION 读取版本：$version"
+        Write-Host "已同步 package.json / tauri.conf.json（version=$version，wix.version=$wixVersion）"
     }
 
     if ($Tag -notmatch '^v\d+\.\d+\.\d+(-beta\.\d+)?$') {
