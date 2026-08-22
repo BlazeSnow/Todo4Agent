@@ -466,10 +466,16 @@ mod tests {
     }
 
     #[test]
-    fn local_mode_no_credentials_ok() {
+    fn defaults_and_credentials() {
         let c = test_conn();
-        assert_eq!(resolve_mcp_user(&c, None, None).unwrap(), None);
-        assert_eq!(resolve_mcp_user(&c, Some("x"), None).unwrap(), None);
+        // 初始 admin 用户自动创建，默认密码可登录
+        let uid = resolve_mcp_user(&c, Some("admin"), Some("admin123")).unwrap();
+        assert!(uid.is_some());
+        // 总有用户：缺凭据拒绝
+        assert!(resolve_mcp_user(&c, None, None).is_err());
+        assert!(resolve_mcp_user(&c, Some("x"), None).is_err());
+        // 错误密码
+        assert!(resolve_mcp_user(&c, Some("admin"), Some("wrong")).is_err());
     }
 
     #[test]
@@ -478,10 +484,8 @@ mod tests {
         db::create_user(&c, "alice", "pass1234").unwrap();
         let uid = resolve_mcp_user(&c, Some("alice"), Some("pass1234")).unwrap();
         assert!(uid.is_some());
-        // 错误密码 / 不存在用户
         assert!(resolve_mcp_user(&c, Some("alice"), Some("wrong")).is_err());
         assert!(resolve_mcp_user(&c, Some("nobody"), Some("pass1234")).is_err());
-        // 多用户模式缺凭据拒绝
         assert!(resolve_mcp_user(&c, None, None).is_err());
         assert!(resolve_mcp_user(&c, Some("alice"), None).is_err());
     }

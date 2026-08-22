@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { authLogin, authRegister, setToken } from '../api'
+import { onMounted, ref } from 'vue'
+import { authLogin, authRegister, authStatus, setToken } from '../api'
 
 const emit = defineEmits<{
   (e: 'logged-in', username: string): void
@@ -11,6 +11,17 @@ const username = ref('')
 const password = ref('')
 const busy = ref(false)
 const errorMsg = ref('')
+/** 存在仍在使用默认密码的账户时提示初始凭据 */
+const showDefaultHint = ref(false)
+
+onMounted(async () => {
+  try {
+    const s = await authStatus()
+    showDefaultHint.value = s.default_password === true
+  } catch {
+    showDefaultHint.value = false
+  }
+})
 
 async function doLogin() {
   if (!username.value.trim() || password.value.length < 4) return
@@ -54,6 +65,15 @@ async function doRegister() {
         为 Agent 设计的 MCP 任务清单
       </v-card-subtitle>
       <v-card-text>
+        <v-alert
+          v-if="showDefaultHint"
+          type="warning"
+          density="compact"
+          class="mb-4"
+          title="初始账号"
+        >
+          初始用户 admin，默认密码 admin123，请登录后尽快在设置中修改密码。
+        </v-alert>
         <p class="text-body-2 text-medium-emphasis mb-4">
           尚未创建用户时，注册将创建首个用户并接管现有本地数据。
         </p>

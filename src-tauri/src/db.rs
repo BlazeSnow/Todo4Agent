@@ -8,6 +8,9 @@ use crate::auth;
 
 /// 默认分组名（AGENTS.md 约定）
 pub const DEFAULT_GROUP: &str = "快速清单";
+/// 初始用户与默认密码（登录后应立即修改）
+pub const DEFAULT_ADMIN_USERNAME: &str = "admin";
+pub const DEFAULT_ADMIN_PASSWORD: &str = "admin123";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
@@ -145,7 +148,8 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
             username      TEXT NOT NULL UNIQUE,
             salt          TEXT NOT NULL,
             password_hash TEXT NOT NULL,
-            created_at    TEXT NOT NULL
+            created_at    TEXT NOT NULL,
+            default_password INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS tasks (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -169,7 +173,9 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
     ensure_task_sort_column(&conn)?;
     ensure_deleted_columns(&conn)?;
     ensure_group_user_column(&conn)?;
+    ensure_user_default_password_column(&conn)?;
     seed_default_group(&conn)?;
+    seed_default_admin(&conn)?;
     Ok(conn)
 }
 
@@ -218,6 +224,43 @@ fn ensure_group_user_column(conn: &Connection) -> SqlResult<()> {
     }
     Ok(())
 }
+/// 为旧数据库迁移 users.default_password 列（初始密码标记）
+fn ensure_user_default_password_column(conn: &Connection) -> SqlResult<()> {
+    let has: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('users') WHERE name = 'default_password'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|n| n > 0)?;
+    if !has {
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN default_password INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+/// 初始化时播种初始用户 admin（仅当尚无任何用户；同时接管无主数据）
+fn seed_default_admin(conn: &Connection) -> SqlResult<()> {
+    if user_count(conn)? == 0 {
+        let user = create_user(conn, DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD)?;
+        conn.execute(
+            "UPDATE users SET default_password = 1 WHERE id = ?1",
+            params![user.id],
+        )?;
+    }
+    Ok(())
+}
+
+/// 是否存在仍在使用默认密码的用户（用于登录页提示）
+pub fn has_default_password_user(conn: &Connection) -> SqlResult<bool> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM users WHERE default_password = 1",
+        [],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|n| n > 0)
+}
+
 
 // ---------- 用户 ----------
 
@@ -310,7 +353,7 @@ pub fn change_user_password(
     let new_salt = auth::new_salt();
     let new_hash = auth::hash_password(new_password, &new_salt);
     conn.execute(
-        "UPDATE users SET salt = ?1, password_hash = ?2 WHERE id = ?3",
+        "UPDATE users SET salt = ?1, password_hash = ?2, default_password = 0 WHERE id = ?3",
         params![new_salt, new_hash, user_id],
     )?;
     Ok(true)
@@ -794,43 +837,45 @@ pub fn import_doc(conn: &Connection, user_id: Option<i64>, doc: &ExportDoc) -> S
 mod tests {
     use super::*;
 
-    fn test_conn() -> Connection {
-        open(Path::new(":memory:")).expect("open memory db")
+    fn test_conn() -> (Connection, i64) {
+        let c = open(Path::new(":memory:")).expect("open memory db");
+        let admin = list_users(&c).unwrap()[0].id;
+        (c, admin)
     }
 
     #[test]
     fn seeds_default_group() {
-        let c = test_conn();
-        let groups = list_groups(&c, None).unwrap();
+        let (c, admin) = test_conn();
+        let groups = list_groups(&c, Some(admin)).unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].name, DEFAULT_GROUP);
     }
 
     #[test]
     fn group_crud_and_unique() {
-        let c = test_conn();
-        let g = create_group(&c, None, "工作").unwrap();
+        let (c, admin) = test_conn();
+        let g = create_group(&c, Some(admin), "工作").unwrap();
         assert_eq!(g.id, 2); // 默认分组占 id=1
-        let dup = create_group(&c, None, "工作").unwrap_err();
+        let dup = create_group(&c, Some(admin), "工作").unwrap_err();
         assert!(is_unique_violation(&dup));
-        assert!(rename_group(&c, None, g.id, "生活").unwrap().is_some());
-        assert!(list_groups(&c, None).unwrap().iter().any(|x| x.name == "生活"));
-        assert!(delete_group(&c, None, g.id).unwrap());
-        assert!(rename_group(&c, None, 999, "x").unwrap().is_none());
-        assert!(!delete_group(&c, None, g.id).unwrap());
+        assert!(rename_group(&c, Some(admin), g.id, "生活").unwrap().is_some());
+        assert!(list_groups(&c, Some(admin)).unwrap().iter().any(|x| x.name == "生活"));
+        assert!(delete_group(&c, Some(admin), g.id).unwrap());
+        assert!(rename_group(&c, Some(admin), 999, "x").unwrap().is_none());
+        assert!(!delete_group(&c, Some(admin), g.id).unwrap());
     }
 
     #[test]
     fn task_crud() {
-        let c = test_conn();
-        let gid = list_groups(&c, None).unwrap()[0].id;
-        let t = create_task(&c, None, gid, "写文档", "详细说明", Some("2026-09-01T00:00:00Z")).unwrap();
+        let (c, admin) = test_conn();
+        let gid = list_groups(&c, Some(admin)).unwrap()[0].id;
+        let t = create_task(&c, Some(admin), gid, "写文档", "详细说明", Some("2026-09-01T00:00:00Z")).unwrap();
         assert_eq!(t.status, "pending");
-        assert_eq!(list_tasks(&c, None, Some(gid)).unwrap().len(), 1);
+        assert_eq!(list_tasks(&c, Some(admin), Some(gid)).unwrap().len(), 1);
 
         let t2 = update_task(
             &c,
-            None,
+            Some(admin),
             t.id,
             &TaskUpdate {
                 title: Some("改标题".into()),
@@ -845,7 +890,7 @@ mod tests {
 
         let cleared = update_task(
             &c,
-            None,
+            Some(admin),
             t.id,
             &TaskUpdate {
                 due_at: Some(None),
@@ -856,32 +901,32 @@ mod tests {
         .unwrap();
         assert!(cleared.due_at.is_none());
 
-        assert!(update_task(&c, None, 999, &TaskUpdate::default()).unwrap().is_none());
-        assert!(delete_task(&c, None, t.id).unwrap());
-        assert!(!delete_task(&c, None, t.id).unwrap());
+        assert!(update_task(&c, Some(admin), 999, &TaskUpdate::default()).unwrap().is_none());
+        assert!(delete_task(&c, Some(admin), t.id).unwrap());
+        assert!(!delete_task(&c, Some(admin), t.id).unwrap());
     }
 
     #[test]
     fn cascade_delete_group() {
-        let c = test_conn();
-        let g = create_group(&c, None, "临时").unwrap();
-        create_task(&c, None, g.id, "任务", "", None).unwrap();
-        assert_eq!(list_tasks(&c, None, None).unwrap().len(), 1);
-        delete_group(&c, None, g.id).unwrap();
-        assert_eq!(list_tasks(&c, None, None).unwrap().len(), 0);
+        let (c, admin) = test_conn();
+        let g = create_group(&c, Some(admin), "临时").unwrap();
+        create_task(&c, Some(admin), g.id, "任务", "", None).unwrap();
+        assert_eq!(list_tasks(&c, Some(admin), None).unwrap().len(), 1);
+        delete_group(&c, Some(admin), g.id).unwrap();
+        assert_eq!(list_tasks(&c, Some(admin), None).unwrap().len(), 0);
     }
 
     #[test]
     fn reorder_tasks_order() {
-        let c = test_conn();
-        let gid = list_groups(&c, None).unwrap()[0].id;
-        let t1 = create_task(&c, None, gid, "A", "", None).unwrap();
-        let t2 = create_task(&c, None, gid, "B", "", None).unwrap();
-        let t3 = create_task(&c, None, gid, "C", "", None).unwrap();
-        assert_eq!(list_tasks(&c, None, Some(gid)).unwrap().len(), 3);
+        let (c, admin) = test_conn();
+        let gid = list_groups(&c, Some(admin)).unwrap()[0].id;
+        let t1 = create_task(&c, Some(admin), gid, "A", "", None).unwrap();
+        let t2 = create_task(&c, Some(admin), gid, "B", "", None).unwrap();
+        let t3 = create_task(&c, Some(admin), gid, "C", "", None).unwrap();
+        assert_eq!(list_tasks(&c, Some(admin), Some(gid)).unwrap().len(), 3);
 
-        reorder_tasks(&c, None, gid, &[t3.id, t1.id, t2.id]).unwrap();
-        let ids: Vec<i64> = list_tasks(&c, None, Some(gid))
+        reorder_tasks(&c, Some(admin), gid, &[t3.id, t1.id, t2.id]).unwrap();
+        let ids: Vec<i64> = list_tasks(&c, Some(admin), Some(gid))
             .unwrap()
             .iter()
             .map(|t| t.id)
@@ -889,8 +934,8 @@ mod tests {
         assert_eq!(ids, vec![t3.id, t1.id, t2.id]);
 
         // 不影响其他分组
-        reorder_tasks(&c, None, gid, &[t2.id, t3.id, t1.id]).unwrap();
-        let ids: Vec<i64> = list_tasks(&c, None, Some(gid))
+        reorder_tasks(&c, Some(admin), gid, &[t2.id, t3.id, t1.id]).unwrap();
+        let ids: Vec<i64> = list_tasks(&c, Some(admin), Some(gid))
             .unwrap()
             .iter()
             .map(|t| t.id)
@@ -900,70 +945,70 @@ mod tests {
 
     #[test]
     fn reorder_groups_order() {
-        let c = test_conn();
-        let g1 = create_group(&c, None, "甲").unwrap();
-        let g2 = create_group(&c, None, "乙").unwrap();
-        let g3 = create_group(&c, None, "丙").unwrap();
+        let (c, admin) = test_conn();
+        let g1 = create_group(&c, Some(admin), "甲").unwrap();
+        let g2 = create_group(&c, Some(admin), "乙").unwrap();
+        let g3 = create_group(&c, Some(admin), "丙").unwrap();
 
-        reorder_groups(&c, None, &[g3.id, g1.id, g2.id]).unwrap();
-        let ids: Vec<i64> = list_groups(&c, None).unwrap().iter().map(|g| g.id).collect();
+        reorder_groups(&c, Some(admin), &[g3.id, g1.id, g2.id]).unwrap();
+        let ids: Vec<i64> = list_groups(&c, Some(admin)).unwrap().iter().map(|g| g.id).collect();
         // 默认分组（快速清单）在最前，其后依次为 丙、甲、乙
         assert_eq!(ids, vec![1, g3.id, g1.id, g2.id]);
     }
 
     #[test]
     fn trash_flow() {
-        let c = test_conn();
-        let gid = list_groups(&c, None).unwrap()[0].id;
-        let t = create_task(&c, None, gid, "待删任务", "", None).unwrap();
+        let (c, admin) = test_conn();
+        let gid = list_groups(&c, Some(admin)).unwrap()[0].id;
+        let t = create_task(&c, Some(admin), gid, "待删任务", "", None).unwrap();
 
         // 删除任务 → 回收站可见、列表与导出不可见
-        assert!(delete_task(&c, None, t.id).unwrap());
-        assert!(list_tasks(&c, None, None).unwrap().is_empty());
-        let (_, tasks) = list_trash(&c, None).unwrap();
+        assert!(delete_task(&c, Some(admin), t.id).unwrap());
+        assert!(list_tasks(&c, Some(admin), None).unwrap().is_empty());
+        let (_, tasks) = list_trash(&c, Some(admin)).unwrap();
         assert_eq!(tasks.len(), 1);
         assert!(tasks[0].deleted_at.is_some());
-        let doc = export_all(&c, None).unwrap();
+        let doc = export_all(&c, Some(admin)).unwrap();
         assert!(doc.groups[0].tasks.is_empty());
 
         // 恢复 → 回到列表
-        assert!(restore_task(&c, None, t.id).unwrap());
-        assert_eq!(list_tasks(&c, None, None).unwrap().len(), 1);
-        assert!(list_trash(&c, None).unwrap().1.is_empty());
+        assert!(restore_task(&c, Some(admin), t.id).unwrap());
+        assert_eq!(list_tasks(&c, Some(admin), None).unwrap().len(), 1);
+        assert!(list_trash(&c, Some(admin)).unwrap().1.is_empty());
 
         // 再删 → 彻底删除
-        delete_task(&c, None, t.id).unwrap();
-        assert!(purge_task(&c, None, t.id).unwrap());
-        assert!(list_trash(&c, None).unwrap().1.is_empty());
+        delete_task(&c, Some(admin), t.id).unwrap();
+        assert!(purge_task(&c, Some(admin), t.id).unwrap());
+        assert!(list_trash(&c, Some(admin)).unwrap().1.is_empty());
 
         // 分组软删级联 + 恢复
-        let g = create_group(&c, None, "回收组").unwrap();
-        create_task(&c, None, g.id, "组内任务", "", None).unwrap();
-        assert!(delete_group(&c, None, g.id).unwrap());
-        let (groups, tasks) = list_trash(&c, None).unwrap();
+        let g = create_group(&c, Some(admin), "回收组").unwrap();
+        create_task(&c, Some(admin), g.id, "组内任务", "", None).unwrap();
+        assert!(delete_group(&c, Some(admin), g.id).unwrap());
+        let (groups, tasks) = list_trash(&c, Some(admin)).unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(tasks.len(), 1);
-        assert!(restore_group(&c, None, g.id).unwrap());
-        assert_eq!(list_groups(&c, None).unwrap().len(), 2);
-        assert_eq!(list_tasks(&c, None, Some(g.id)).unwrap().len(), 1);
+        assert!(restore_group(&c, Some(admin), g.id).unwrap());
+        assert_eq!(list_groups(&c, Some(admin)).unwrap().len(), 2);
+        assert_eq!(list_tasks(&c, Some(admin), Some(g.id)).unwrap().len(), 1);
 
         // 分组在回收站时其任务再删除会怎样：恢复后任务仍在
-        let g2 = create_group(&c, None, "再删组").unwrap();
-        delete_group(&c, None, g2.id).unwrap();
-        assert!(purge_group(&c, None, g2.id).unwrap());
-        assert!(list_trash(&c, None).unwrap().0.iter().all(|x| x.id != g2.id));
+        let g2 = create_group(&c, Some(admin), "再删组").unwrap();
+        delete_group(&c, Some(admin), g2.id).unwrap();
+        assert!(purge_group(&c, Some(admin), g2.id).unwrap());
+        assert!(list_trash(&c, Some(admin)).unwrap().0.iter().all(|x| x.id != g2.id));
 
         // 清空回收站
-        delete_group(&c, None, g.id).unwrap();
-        empty_trash(&c, None).unwrap();
-        let (groups, tasks) = list_trash(&c, None).unwrap();
+        delete_group(&c, Some(admin), g.id).unwrap();
+        empty_trash(&c, Some(admin)).unwrap();
+        let (groups, tasks) = list_trash(&c, Some(admin)).unwrap();
         assert!(groups.is_empty());
         assert!(tasks.is_empty());
     }
 
     #[test]
     fn settings_roundtrip() {
-        let c = test_conn();
+        let (c, admin) = test_conn();
         assert_eq!(get_port_setting(&c).unwrap(), DEFAULT_PORT);
         set_setting(&c, SETTINGS_PORT_KEY, "8080").unwrap();
         assert_eq!(get_port_setting(&c).unwrap(), 8080);
@@ -974,10 +1019,10 @@ mod tests {
 
     #[test]
     fn import_doc_merge() {
-        let c = test_conn();
+        let (c, admin) = test_conn();
         // 预置数据：快速清单已存在（默认播种）
-        let gid = list_groups(&c, None).unwrap()[0].id;
-        create_task(&c, None, gid, "原有任务", "", None).unwrap();
+        let gid = list_groups(&c, Some(admin)).unwrap()[0].id;
+        create_task(&c, Some(admin), gid, "原有任务", "", None).unwrap();
 
         let doc = ExportDoc {
             version: 1,
@@ -1018,60 +1063,60 @@ mod tests {
             ],
         };
 
-        let r = import_doc(&c, None, &doc).unwrap();
+        let r = import_doc(&c, Some(admin), &doc).unwrap();
         assert_eq!(r.groups_created, 1);
         assert_eq!(r.groups_merged, 1);
         assert_eq!(r.tasks_imported, 3);
         assert_eq!(r.tasks_skipped, 1);
 
         // 快速清单：原有 + 2 个导入任务，且导入任务保持 done 状态
-        let tasks = list_tasks(&c, None, Some(gid)).unwrap();
+        let tasks = list_tasks(&c, Some(admin), Some(gid)).unwrap();
         assert_eq!(tasks.len(), 3);
         assert!(tasks.iter().any(|t| t.title == "导入任务1" && t.status == "done"));
 
         // 新分组
-        let groups = list_groups(&c, None).unwrap();
+        let groups = list_groups(&c, Some(admin)).unwrap();
         let new_g = groups.iter().find(|g| g.name == "新分组").unwrap();
-        assert_eq!(list_tasks(&c, None, Some(new_g.id)).unwrap().len(), 1);
+        assert_eq!(list_tasks(&c, Some(admin), Some(new_g.id)).unwrap().len(), 1);
     }
 
 #[test]
     fn multi_user_isolation() {
-        let c = test_conn();
-        // 本地模式遗留数据
-        let gid = list_groups(&c, None).unwrap()[0].id;
-        create_task(&c, None, gid, "本地任务", "", None).unwrap();
+        let (c, admin) = test_conn();
+        // 初始用户 admin 拥有默认分组与数据
+        let gid = list_groups(&c, Some(admin)).unwrap()[0].id;
+        create_task(&c, Some(admin), gid, "admin任务", "", None).unwrap();
 
-        // 创建首个用户 → 接管本地数据
+        // 新注册用户：独立数据空间
         let u1 = create_user(&c, "alice", "pass1234").unwrap();
-        let g1 = list_groups(&c, Some(u1.id)).unwrap();
-        assert_eq!(g1.len(), 1);
-        assert_eq!(list_groups(&c, None).unwrap().len(), 0);
-        let t1 = list_tasks(&c, Some(u1.id), None).unwrap();
-        assert_eq!(t1.len(), 1);
-        assert_eq!(t1[0].title, "本地任务");
+        assert_eq!(list_groups(&c, Some(u1.id)).unwrap().len(), 0);
+        assert_eq!(list_tasks(&c, Some(u1.id), None).unwrap().len(), 0);
 
-        // 第二个用户：全新数据空间
-        let u2 = create_user(&c, "bob", "pass1234").unwrap();
-        assert_eq!(list_groups(&c, Some(u2.id)).unwrap().len(), 0);
+        // admin 的分组与新用户互不可见/不可操作
+        let g = &list_groups(&c, Some(admin)).unwrap()[0];
+        assert!(rename_group(&c, Some(u1.id), g.id, "抢注").unwrap().is_none());
+        assert_eq!(list_tasks(&c, Some(u1.id), Some(g.id)).unwrap().len(), 0);
+        let t1 = list_tasks(&c, Some(admin), None).unwrap()[0].clone();
+        assert!(!delete_task(&c, Some(u1.id), t1.id).unwrap());
 
-        // 用户1 的分组用户2 不可见/不可操作
-        let g = &g1[0];
-        assert!(rename_group(&c, Some(u2.id), g.id, "抢注").unwrap().is_none());
-        assert_eq!(list_tasks(&c, Some(u2.id), Some(g.id)).unwrap().len(), 0);
-        assert!(!delete_task(&c, Some(u2.id), t1[0].id).unwrap());
-
-        // 密码校验
+        // 密码校验与默认密码标记
+        assert!(verify_user(&c, "admin", "admin123").unwrap().is_some());
         assert!(verify_user(&c, "alice", "pass1234").unwrap().is_some());
         assert!(verify_user(&c, "alice", "wrong").unwrap().is_none());
+        assert!(has_default_password_user(&c).unwrap()); // admin 仍是默认密码
+
+        // 改密后清除默认标记
+        assert!(change_user_password(&c, admin, "admin123", "newpass9").unwrap());
+        assert!(verify_user(&c, "admin", "newpass9").unwrap().is_some());
+        assert!(!has_default_password_user(&c).unwrap());
     }
 
-    #[test]
+#[test]
     fn export_shape() {
-        let c = test_conn();
-        let gid = list_groups(&c, None).unwrap()[0].id;
-        create_task(&c, None, gid, "A", "B", None).unwrap();
-        let doc = export_all(&c, None).unwrap();
+        let (c, admin) = test_conn();
+        let gid = list_groups(&c, Some(admin)).unwrap()[0].id;
+        create_task(&c, Some(admin), gid, "A", "B", None).unwrap();
+        let doc = export_all(&c, Some(admin)).unwrap();
         assert_eq!(doc.version, 1);
         assert_eq!(doc.groups.len(), 1);
         assert_eq!(doc.groups[0].name, DEFAULT_GROUP);

@@ -81,4 +81,6 @@ export interface AuthStatus {
   mode: 'local' | 'users'
   user_id: number | null
   username: string | null
+  /** 是否存在仍在使用初始默认密码的用户（登录页提示改密） */
+  default_password: boolean
 }

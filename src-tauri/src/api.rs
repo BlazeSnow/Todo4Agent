@@ -405,6 +405,7 @@ async fn auth_status(
 ) -> ApiResult {
     let c = st.db.lock().unwrap();
     let users_exist = db::user_count(&c).unwrap_or(0) > 0;
+    let has_default_password = db::has_default_password_user(&c).unwrap_or(false);
     let username = match cur.0 {
         Some(uid) => db::list_users(&c)
             .ok()
@@ -415,7 +416,8 @@ async fn auth_status(
     ok_json(json!({
         "mode": if users_exist { "users" } else { "local" },
         "user_id": cur.0,
-        "username": username
+        "username": username,
+        "default_password": has_default_password
     }))
 }
 
