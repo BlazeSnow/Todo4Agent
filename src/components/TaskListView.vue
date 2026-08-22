@@ -270,7 +270,7 @@ function overdue(task: Task): boolean {
   height: 18px;
   margin-top: 3px;
   cursor: pointer;
-  accent-color: #4caf50;
+  accent-color: #03fc8c;
 }
 
 .task-main {
