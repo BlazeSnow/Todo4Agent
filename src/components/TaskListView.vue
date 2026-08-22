@@ -53,88 +53,244 @@ const sortOptions: { value: SortMode; label: string }[] = [
   { value: 'time', label: '按截止时间' },
   { value: 'title', label: '按标题' },
 ]
+
+// ---------- 展示辅助 ----------
+
+function formatDue(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  return d.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+function overdue(task: Task): boolean {
+  if (!task.due_at || task.status === 'done') return false
+  const d = new Date(task.due_at)
+  return !isNaN(d.getTime()) && d.getTime() < Date.now()
+}
 </script>
 
 <template>
   <div>
-    <div class="d-flex align-center mb-4">
-      <v-icon icon="mdi-folder-outline" class="mr-2" />
-      <h2 class="text-h6">{{ groupName ?? '未选择分组' }}</h2>
-      <v-spacer />
-
-      <v-menu>
-        <template #activator="{ props }">
-          <v-btn v-bind="props" variant="text" prepend-icon="mdi-sort-variant">
-            排序：{{ sortModeLabel }}
-          </v-btn>
-        </template>
-        <v-list density="compact">
-          <v-list-item
-            v-for="opt in sortOptions"
-            :key="opt.value"
-            :title="opt.label"
-            :active="sortMode === opt.value"
-            @click="toggleSort(opt.value)"
-          />
-        </v-list>
-      </v-menu>
-
-      <v-btn color="primary" prepend-icon="mdi-plus" class="ml-2" @click="$emit('create')">
-        新建任务
-      </v-btn>
+    <div class="list-header">
+      <h2 class="group-title">{{ groupName ?? '未选择分组' }}</h2>
+      <div class="header-actions">
+        <v-menu>
+          <template #activator="{ props }">
+            <v-btn v-bind="props" variant="text" prepend-icon="mdi-sort-variant">
+              排序：{{ sortModeLabel }}
+            </v-btn>
+          </template>
+          <v-list density="compact">
+            <v-list-item
+              v-for="opt in sortOptions"
+              :key="opt.value"
+              :title="opt.label"
+              :active="sortMode === opt.value"
+              @click="toggleSort(opt.value)"
+            />
+          </v-list>
+        </v-menu>
+        <v-btn color="primary" prepend-icon="mdi-plus" @click="$emit('create')">
+          新建任务
+        </v-btn>
+      </div>
     </div>
 
-    <v-alert v-if="!groupName" type="info" text="请先在左侧创建分组" />
+    <div v-if="!groupName" class="empty-tip">请先在左侧创建分组</div>
 
-    <v-progress-linear v-if="loading" indeterminate class="mb-4" />
+    <div v-if="loading" class="list-loading" />
 
-    <v-card
-      v-for="task in displayedTasks"
-      :key="task.id"
-      class="mb-2"
-      variant="outlined"
-      :class="{ 'opacity-60': task.status === 'done' }"
-    >
-      <v-list-item>
-        <template #prepend>
-          <v-checkbox-btn
-            :model-value="task.status === 'done'"
-            color="success"
-            @update:model-value="$emit('toggle', task)"
-          />
-        </template>
-        <v-list-item-title
-          :class="{ 'text-decoration-line-through': task.status === 'done' }"
-        >
+    <!-- 任务卡片（原生结构，便于后续界面优化） -->
+    <div class="task-item" v-for="task in displayedTasks" :key="task.id">
+      <input
+        type="checkbox"
+        class="task-check"
+        :checked="task.status === 'done'"
+        :aria-label="`完成：${task.title}`"
+        @change="$emit('toggle', task)"
+      />
+      <div class="task-main">
+        <div class="task-title" :class="{ struck: task.status === 'done' }">
           {{ task.title }}
-        </v-list-item-title>
-        <v-list-item-subtitle v-if="task.description" class="text-pre-wrap">
-          {{ task.description }}
-        </v-list-item-subtitle>
-        <v-list-item-subtitle v-if="task.due_at" class="mt-1">
-          <v-chip size="small" variant="tonal" :color="overdue(task) ? 'error' : 'default'">
-            <v-icon start icon="mdi-calendar" size="small" />
-            {{ formatDue(task.due_at) }}
-          </v-chip>
-        </v-list-item-subtitle>
-        <template #append>
-          <v-btn icon="mdi-pencil" size="small" variant="text" @click="$emit('edit', task)" />
-          <v-btn
-            icon="mdi-delete"
-            size="small"
-            variant="text"
-            color="error"
-            @click="$emit('remove', task)"
-          />
-        </template>
-      </v-list-item>
-    </v-card>
+        </div>
+        <div v-if="task.description" class="task-desc">{{ task.description }}</div>
+        <div v-if="task.due_at" class="task-due" :class="{ overdue: overdue(task) }">
+          <i class="mdi mdi-calendar"></i>
+          {{ formatDue(task.due_at) }}
+        </div>
+      </div>
+      <div class="task-actions">
+        <v-btn
+          icon="mdi-pencil"
+          size="small"
+          variant="text"
+          :aria-label="`编辑：${task.title}`"
+          @click="$emit('edit', task)"
+        />
+        <v-btn
+          icon="mdi-delete"
+          size="small"
+          variant="text"
+          color="error"
+          :aria-label="`删除：${task.title}`"
+          @click="$emit('remove', task)"
+        />
+      </div>
+    </div>
 
-    <v-empty
+    <div
       v-if="!loading && groupName && tasks.length === 0"
-      icon="mdi-inbox-outline"
-      title="暂无任务"
-      text="点击右上角「新建任务」，或让 Agent 通过 MCP 添加"
-    />
+      class="empty-state"
+    >
+      <i class="mdi mdi-inbox-outline"></i>
+      <div class="empty-title">暂无任务</div>
+      <div class="empty-text">点击右上角「新建任务」，或让 Agent 通过 MCP 添加</div>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.list-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.group-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.empty-tip {
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: rgba(var(--v-theme-info), 0.12);
+  color: rgb(var(--v-theme-info));
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.list-loading {
+  height: 4px;
+  border-radius: 2px;
+  margin-bottom: 16px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(var(--v-theme-primary), 0.4),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: loading-slide 1.2s infinite;
+}
+@keyframes loading-slide {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: rgb(var(--v-theme-surface));
+  transition: border-color 0.15s ease;
+}
+.task-item:hover {
+  border-color: rgba(var(--v-theme-primary), 0.6);
+}
+.task-item.done {
+  opacity: 0.6;
+}
+
+.task-check {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  cursor: pointer;
+  accent-color: #4caf50;
+}
+
+.task-main {
+  flex: 1;
+  min-width: 0;
+}
+.task-title {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.task-title.struck {
+  text-decoration: line-through;
+  color: rgba(0, 0, 0, 0.45);
+}
+.task-desc {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.6);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 2px;
+}
+.task-due {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.7);
+}
+.task-due .mdi {
+  font-size: 13px;
+}
+.task-due.overdue {
+  background: rgba(var(--v-theme-error), 0.12);
+  color: rgb(var(--v-theme-error));
+}
+
+.task-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 48px 0;
+  color: rgba(0, 0, 0, 0.4);
+}
+.empty-state .mdi {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+.empty-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.6);
+}
+.empty-text {
+  font-size: 13px;
+}
+</style>
