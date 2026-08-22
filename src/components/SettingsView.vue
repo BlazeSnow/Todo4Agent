@@ -2,7 +2,6 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   authChangePassword,
-  authRegister,
   downloadExport,
   exportDoc,
   getSettings,
@@ -21,7 +20,6 @@ const emit = defineEmits<{
   (e: 'exported'): void
   (e: 'imported'): void
   (e: 'logout'): void
-  (e: 'authChanged'): void
   (e: 'error', msg: string): void
   (e: 'notify', msg: string): void
 }>()
@@ -111,28 +109,6 @@ async function savePort() {
 
 // ---------- 用户 ----------
 
-const newUser = ref('')
-const newPass = ref('')
-const registering = ref(false)
-
-async function registerUser() {
-  const name = newUser.value.trim()
-  if (!name || newPass.value.length < 4) return
-  registering.value = true
-  try {
-    await authRegister(name, newPass.value)
-    emit('notify', `用户「${name}」已创建`)
-    // 系统可能刚进入多用户模式（首个用户），重新校验认证状态
-    emit('authChanged')
-    newUser.value = ''
-    newPass.value = ''
-  } catch (e) {
-    emit('error', (e as Error).message)
-  } finally {
-    registering.value = false
-  }
-}
-
 const oldPass = ref('')
 const newPass2 = ref('')
 const changingPass = ref(false)
@@ -199,39 +175,6 @@ async function changePassword() {
             退出登录
           </v-btn>
         </div>
-
-        <v-divider class="my-3" />
-
-        <div class="text-subtitle-2 mb-2">注册新用户</div>
-        <form @submit.prevent="registerUser">
-          <v-text-field
-            v-model="newUser"
-            label="用户名"
-            autocomplete="off"
-            class="mb-2"
-            hide-details="auto"
-          />
-          <v-text-field
-            v-model="newPass"
-            label="密码（至少 4 位）"
-            type="password"
-            autocomplete="new-password"
-            class="mb-2"
-            hide-details="auto"
-          />
-          <v-btn
-            type="submit"
-            color="primary"
-            variant="tonal"
-            :loading="registering"
-            :disabled="!newUser.trim() || newPass.length < 4"
-          >
-            创建用户
-          </v-btn>
-          <p class="text-caption mt-2 text-medium-emphasis">
-            每个用户拥有独立的数据空间，互不可见。
-          </p>
-        </form>
 
         <v-divider class="my-3" />
 

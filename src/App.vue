@@ -449,7 +449,6 @@ async function onImported() {
           @exported="notifyExported"
           @imported="onImported"
           @logout="onLogout"
-          @auth-changed="initAuth"
           @error="notify"
           @notify="notify"
         />
