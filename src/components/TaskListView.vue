@@ -115,7 +115,7 @@ function overdue(task: Task): boolean {
             />
           </v-list>
         </v-menu>
-        <v-btn color="primary" prepend-icon="mdi-plus" @click="$emit('create')">
+        <v-btn color="accentDeep" prepend-icon="mdi-plus" @click="$emit('create')">
           新建任务
         </v-btn>
       </div>

@@ -13,6 +13,9 @@ const vuetify = createVuetify({
           primary: '#03fc8c',
           // 浅绿底上使用深色文字保证对比度
           'on-primary': '#00332a',
+          // 主按钮用加深版主题绿（避免过亮）
+          accentDeep: '#00a862',
+          'on-accentDeep': '#ffffff',
         },
       },
     },
