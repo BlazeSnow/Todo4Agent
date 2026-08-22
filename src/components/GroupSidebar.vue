@@ -26,7 +26,7 @@ defineEmits<{
     <v-list-item
       v-for="group in groups"
       :key="group.id"
-      :active="selectedId === group.id"
+      :active="activeView === 'tasks' && selectedId === group.id"
       :title="group.name"
       @click="$emit('select', group.id)"
     >
