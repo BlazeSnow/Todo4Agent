@@ -1,0 +1,54 @@
+# 行尾策略：仓库内统一存储为 LF，检出按平台自适应
+* text=auto
+
+# 源码与文档：无论平台，检出均为 LF（避免 Windows 下反复出现 CRLF 警告）
+*.rs text eol=lf
+*.toml text eol=lf
+*.vue text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.jsonc text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.svg text eol=lf
+
+# 脚本保持 LF（GitHub Actions 运行于 Linux）
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Windows 批处理 / PowerShell 保持 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制文件：不做任何行尾/文本处理
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.exe binary
+*.msi binary
+*.dmg binary
+*.deb binary
+*.rpm binary
+*.appimage binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+*.ttf binary

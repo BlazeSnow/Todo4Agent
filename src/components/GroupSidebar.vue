@@ -1,0 +1,126 @@
+<script setup lang="ts">
+import type { Group } from '../types'
+
+const props = defineProps<{
+  groups: Group[]
+  selectedId: number | null
+  loading: boolean
+  /** 当前主视图，用于侧边栏底部入口的选中高亮 */
+  activeView: 'tasks' | 'settings' | 'mcp' | 'trash'
+}>()
+
+const emit = defineEmits<{
+  (e: 'select', id: number): void
+  (e: 'create'): void
+  (e: 'rename', group: Group): void
+  (e: 'delete', group: Group): void
+  (e: 'mcp'): void
+  (e: 'settings'): void
+  (e: 'trash'): void
+  (e: 'reorder', groupIds: number[]): void
+}>()
+
+// ---------- 上移 / 下移 ----------
+
+function canMoveGroup(group: Group, dir: -1 | 1): boolean {
+  const idx = props.groups.findIndex((g) => g.id === group.id)
+  if (idx < 0) return false
+  const target = idx + dir
+  return target >= 0 && target < props.groups.length
+}
+
+function moveGroup(group: Group, dir: -1 | 1) {
+  if (!canMoveGroup(group, dir)) return
+  const list = [...props.groups]
+  const idx = list.findIndex((g) => g.id === group.id)
+  const target = idx + dir
+  const tmp = list[idx]
+  list[idx] = list[target]
+  list[target] = tmp
+  emit('reorder', list.map((g) => g.id))
+}
+</script>
+
+<template>
+  <v-list nav density="comfortable">
+    <v-list-subheader>任务分组</v-list-subheader>
+
+    <v-list-item
+      v-for="group in groups"
+      :key="group.id"
+      :active="activeView === 'tasks' && selectedId === group.id"
+      :title="group.name"
+      @click="$emit('select', group.id)"
+    >
+      <template #prepend>
+        <v-icon icon="mdi-folder" />
+      </template>
+      <template #append>
+        <v-menu location="bottom right" :close-on-content-click="true">
+          <template #activator="{ props }">
+            <v-btn
+              v-bind="props"
+              icon="mdi-dots-horizontal"
+              size="small"
+              variant="text"
+              @click.stop
+            />
+          </template>
+          <v-list density="compact">
+            <v-list-item
+              prepend-icon="mdi-arrow-up"
+              title="上移"
+              :disabled="!canMoveGroup(group, -1)"
+              @click="moveGroup(group, -1)"
+            />
+            <v-list-item
+              prepend-icon="mdi-arrow-down"
+              title="下移"
+              :disabled="!canMoveGroup(group, 1)"
+              @click="moveGroup(group, 1)"
+            />
+            <v-divider />
+            <v-list-item
+              prepend-icon="mdi-pencil"
+              title="重命名"
+              @click="$emit('rename', group)"
+            />
+            <v-list-item
+              prepend-icon="mdi-delete"
+              title="删除"
+              color="error"
+              @click="$emit('delete', group)"
+            />
+          </v-list>
+        </v-menu>
+      </template>
+    </v-list-item>
+
+    <v-list-item prepend-icon="mdi-plus" title="新增分组" @click="$emit('create')" />
+
+    <v-list-item
+      prepend-icon="mdi-trash-can-outline"
+      title="回收站"
+      :active="activeView === 'trash'"
+      @click="$emit('trash')"
+    />
+
+    <v-divider class="my-2" />
+
+    <v-list-subheader>更多</v-list-subheader>
+    <v-list-item
+      prepend-icon="mdi-connection"
+      title="Agent 接入（MCP）"
+      subtitle="点击查看连接说明"
+      :active="activeView === 'mcp'"
+      @click="$emit('mcp')"
+    />
+
+    <v-list-item
+      prepend-icon="mdi-cog-outline"
+      title="设置"
+      :active="activeView === 'settings'"
+      @click="$emit('settings')"
+    />
+  </v-list>
+</template>

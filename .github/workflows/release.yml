@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+    - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - platform: macos-latest
+        - platform: ubuntu-latest
+        - platform: windows-latest
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Check version consistency
+      shell: bash
+      run: bash ci/check-version.sh "${GITHUB_REF_NAME#v}"
+
+    - name: Install Linux dependencies
+      if: matrix.platform == 'ubuntu-latest'
+      run: bash ci/linux-deps.sh
+
+    - name: Setup Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 26
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v6
+      with:
+        version: 11
+
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: swatinem/rust-cache@v2
+      with:
+        workspaces: src-tauri
+
+    - name: Install frontend dependencies
+      run: pnpm install --frozen-lockfile
+
+    # beforeBuildCommand 会先执行 pnpm build（Vite），再编译并打包 Tauri。
+    # Windows MSI 的版本由 tauri.conf.json > bundle.windows.wix.version 单独指定（数字格式）
+    - name: Build and bundle
+      run: pnpm tauri build
+
+    - name: Create or update GitHub Release
+      uses: ncipollo/release-action@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        tag: ${{ github.ref_name }}
+        name: Todo4Agent ${{ github.ref_name }}
+        prerelease: ${{ contains(github.ref_name, '-beta') }}
+        body: 完整更新日志见 [CHANGELOG.md](CHANGELOG.md)
+        # 多平台并行构建：release 可能已被其他平台创建，允许更新并替换产物
+        allowUpdates: true
+        replacesArtifacts: true
+        artifactErrorsFailBuild: false
+        artifacts: "src-tauri/target/release/bundle/**/*.msi,src-tauri/target/release/bundle/**/*.exe,src-tauri/target/release/bundle/**/*.dmg,src-tauri/target/release/bundle/**/*.deb,src-tauri/target/release/bundle/**/*.AppImage,src-tauri/target/release/bundle/**/*.rpm"
