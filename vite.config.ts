@@ -8,6 +8,10 @@ export default defineConfig({
   server: {
     port: 3001,
     strictPort: true,
+    // 忽略 Rust 构建产物，避免 cargo 编译写入时与文件监控冲突（Windows EBUSY）
+    watch: {
+      ignored: ['**/src-tauri/target/**', '**/src-tauri/gen/**', '**/dist/**'],
+    },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3000',
