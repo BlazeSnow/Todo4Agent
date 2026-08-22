@@ -432,7 +432,7 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
         />
       </template>
       <v-app-bar-title>
-        <img src="/icon.svg" alt="Todo4Agent" class="app-logo" />
+        <img src="/favicon.ico" alt="Todo4Agent" class="app-logo" />
         Todo4Agent
         <span class="text-body-2 text-medium-emphasis ml-2">
           为 Agent 设计的 MCP 任务清单
