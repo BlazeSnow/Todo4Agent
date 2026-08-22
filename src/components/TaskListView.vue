@@ -14,6 +14,7 @@ const emit = defineEmits<{
   (e: 'edit', task: Task): void
   (e: 'toggle', task: Task): void
   (e: 'remove', task: Task): void
+  (e: 'reorder', taskIds: number[]): void
 }>()
 
 // ---------- 排序 ----------
@@ -47,6 +48,28 @@ const displayedTasks = computed<Task[]>(() => {
 /** 点击已选中的排序项时恢复默认顺序 */
 function toggleSort(mode: SortMode) {
   sortMode.value = sortMode.value === mode ? null : mode
+}
+
+// ---------- 上移 / 下移 ----------
+
+/** 仅默认顺序下可上移/下移（其他排序模式下顺序由排序决定，移动无意义） */
+function canMove(task: Task, dir: -1 | 1): boolean {
+  if (sortMode.value !== null) return false
+  const idx = displayedTasks.value.findIndex((t) => t.id === task.id)
+  if (idx < 0) return false
+  const target = idx + dir
+  return target >= 0 && target < displayedTasks.value.length
+}
+
+function moveTask(task: Task, dir: -1 | 1) {
+  if (!canMove(task, dir)) return
+  const list = [...displayedTasks.value]
+  const idx = list.findIndex((t) => t.id === task.id)
+  const target = idx + dir
+  const tmp = list[idx]
+  list[idx] = list[target]
+  list[target] = tmp
+  emit('reorder', list.map((t) => t.id))
 }
 
 const sortOptions: { value: SortMode; label: string }[] = [
@@ -120,21 +143,43 @@ function overdue(task: Task): boolean {
         </div>
       </div>
       <div class="task-actions">
-        <v-btn
-          icon="mdi-pencil"
-          size="small"
-          variant="text"
-          :aria-label="`编辑：${task.title}`"
-          @click="$emit('edit', task)"
-        />
-        <v-btn
-          icon="mdi-delete"
-          size="small"
-          variant="text"
-          color="error"
-          :aria-label="`删除：${task.title}`"
-          @click="$emit('remove', task)"
-        />
+        <v-menu location="bottom right">
+          <template #activator="{ props }">
+            <v-btn
+              v-bind="props"
+              icon="mdi-dots-horizontal"
+              size="small"
+              variant="text"
+              :aria-label="`更多操作：${task.title}`"
+            />
+          </template>
+          <v-list density="compact">
+            <v-list-item
+              prepend-icon="mdi-arrow-up"
+              title="上移"
+              :disabled="!canMove(task, -1)"
+              @click="moveTask(task, -1)"
+            />
+            <v-list-item
+              prepend-icon="mdi-arrow-down"
+              title="下移"
+              :disabled="!canMove(task, 1)"
+              @click="moveTask(task, 1)"
+            />
+            <v-divider />
+            <v-list-item
+              prepend-icon="mdi-pencil"
+              title="编辑"
+              @click="$emit('edit', task)"
+            />
+            <v-list-item
+              prepend-icon="mdi-delete"
+              title="删除"
+              color="error"
+              @click="$emit('remove', task)"
+            />
+          </v-list>
+        </v-menu>
       </div>
     </div>
 

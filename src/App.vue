@@ -21,6 +21,7 @@ import {
   purgeGroup,
   purgeTask,
   renameGroup,
+  reorderTasks,
   restoreGroup,
   restoreTask,
   updateTask,
@@ -205,6 +206,17 @@ function onDeleteTask(task: Task) {
   confirmDialog.value = true
 }
 
+/** 上移/下移后持久化新顺序 */
+async function onReorderTasks(taskIds: number[]) {
+  if (selectedGroupId.value == null) return
+  try {
+    await reorderTasks(selectedGroupId.value, taskIds)
+  } catch (e) {
+    notify((e as Error).message)
+  }
+  await loadTasks()
+}
+
 const confirmMessage = computed(() => {
   switch (confirmAction.value?.type) {
     case 'group':
@@ -350,6 +362,7 @@ function notifyExported() {
           @edit="openEditTask"
           @toggle="onToggleTask"
           @remove="onDeleteTask"
+          @reorder="onReorderTasks"
         />
         <SettingsView
           v-else-if="currentView === 'settings'"
