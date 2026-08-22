@@ -26,9 +26,13 @@ const loadingGroups = ref(false)
 const loadingTasks = ref(false)
 const snackbar = ref({ show: false, text: '' })
 
-// 窄屏（<960px）时侧边栏允许伸缩并切换为浮层模式；大屏常驻，不显示切换按钮
+// 侧边栏三档行为：
+// - 小屏（<600px）：浮层模式，可收起，不挤压主内容
+// - 中屏（600-959px）：常驻占位（v-main 自动偏移，不遮挡），可收起
+// - 大屏（>=960px）：常驻，不显示切换按钮，禁止收起
 const { width } = useDisplay()
-const isSmall = computed(() => width.value < 960)
+const isSmall = computed(() => width.value < 600)
+const isLarge = computed(() => width.value >= 960)
 
 const taskDialog = ref(false)
 const editingTask = ref<Task | null>(null)
@@ -239,7 +243,7 @@ async function copyMcpCommand() {
     <v-app-bar app>
       <template #prepend>
         <v-btn
-          v-if="isSmall"
+          v-if="!isLarge"
           :icon="drawer ? 'mdi-menu-open' : 'mdi-menu'"
           variant="text"
           aria-label="切换侧边栏"
@@ -260,7 +264,7 @@ async function copyMcpCommand() {
     </v-app-bar>
 
     <v-navigation-drawer
-      :model-value="isSmall ? drawer : true"
+      :model-value="isLarge ? true : drawer"
       app
       width="280"
       :temporary="isSmall"
