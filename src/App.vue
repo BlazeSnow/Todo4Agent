@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useDisplay } from 'vuetify'
 import GroupSidebar from './components/GroupSidebar.vue'
 import GroupDialog from './components/GroupDialog.vue'
 import TaskDialog from './components/TaskDialog.vue'
@@ -20,9 +21,13 @@ import type { Group, Task, TaskInput } from './types'
 const groups = ref<Group[]>([])
 const tasks = ref<Task[]>([])
 const selectedGroupId = ref<number | null>(null)
+const drawer = ref(true)
 const loadingGroups = ref(false)
 const loadingTasks = ref(false)
 const snackbar = ref({ show: false, text: '' })
+
+// 窄屏（手机/小窗口）时侧边栏自动切换为浮层模式，不挤压主内容
+const { mobile } = useDisplay()
 
 const taskDialog = ref(false)
 const editingTask = ref<Task | null>(null)
@@ -214,6 +219,14 @@ function overdue(task: Task): boolean {
 <template>
   <v-app>
     <v-app-bar app>
+      <template #prepend>
+        <v-btn
+          :icon="drawer ? 'mdi-menu-open' : 'mdi-menu'"
+          variant="text"
+          aria-label="切换侧边栏"
+          @click="drawer = !drawer"
+        />
+      </template>
       <v-app-bar-title>
         <v-icon icon="mdi-checkbox-marked-circle-outline" class="mr-2" />
         Todo4Agent
@@ -227,7 +240,7 @@ function overdue(task: Task): boolean {
       <v-btn variant="text" prepend-icon="mdi-refresh" @click="loadGroups">刷新</v-btn>
     </v-app-bar>
 
-    <v-navigation-drawer app width="280">
+    <v-navigation-drawer v-model="drawer" app width="280" :temporary="mobile">
       <GroupSidebar
         :groups="groups"
         :selected-id="selectedGroupId"
