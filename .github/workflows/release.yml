@@ -22,6 +22,10 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
+    - name: Check version consistency
+      shell: bash
+      run: bash ci/check-version.sh "${GITHUB_REF_NAME#v}"
+
     - name: Install Linux dependencies
       if: matrix.platform == 'ubuntu-latest'
       run: bash ci/linux-deps.sh

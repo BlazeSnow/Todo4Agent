@@ -46,6 +46,14 @@ try {
     }
 
     # 2. 校验格式：vX.Y.Z 或 vX.Y.Z-beta.N（-beta.N 保留，正式版/测试版由版本号本身决定）
+    # 版本一致性校验：package.json 与 tauri.conf.json 必须一致
+    #（打包产物的版本取自 tauri.conf.json，缺失同步会导致安装包版本与 tag 不符）
+    $pkgVersion = (Get-Content (Join-Path $RepoRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
+    $tauriCfg = Get-Content (Join-Path $RepoRoot 'src-tauri/tauri.conf.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($pkgVersion -ne $tauriCfg.version) {
+        throw "版本不一致：package.json 为 $pkgVersion，tauri.conf.json 为 $($tauriCfg.version)。请先同步两处版本后再打 tag。"
+    }
+
     if ($Tag -notmatch '^v\d+\.\d+\.\d+(-beta\.\d+)?$') {
         throw "tag 格式不正确：$Tag（应为 vX.Y.Z 或 vX.Y.Z-beta.N，例如 v1.5.0、v1.5.0-beta.2）"
     }
