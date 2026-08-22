@@ -84,18 +84,16 @@ async function copyConfig() {
     </v-card>
 
     <v-card variant="outlined" class="mb-4">
-      <v-card-title>
-        Agent 客户端配置示例
-        <template #append>
-          <v-btn
-            size="small"
-            variant="tonal"
-            prepend-icon="mdi-content-copy"
-            @click="copyConfig"
-          >
-            复制配置
-          </v-btn>
-        </template>
+      <v-card-title class="d-flex align-center justify-space-between gap-2">
+        <span>Agent 客户端配置示例</span>
+        <v-btn
+          size="small"
+          variant="tonal"
+          prepend-icon="mdi-content-copy"
+          @click="copyConfig"
+        >
+          复制配置
+        </v-btn>
       </v-card-title>
       <v-card-text>
         <pre class="bg-surface-variant pa-3 rounded"><code>{{ configText }}</code></pre>
