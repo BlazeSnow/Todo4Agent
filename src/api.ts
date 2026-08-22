@@ -53,6 +53,14 @@ export function deleteTask(id: number): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(`/tasks/${id}`, { method: 'DELETE' })
 }
 
+/** 按给定顺序重排某分组内的任务 */
+export function reorderTasks(groupId: number, taskIds: number[]): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/tasks/reorder/${groupId}`, {
+    method: 'POST',
+    body: JSON.stringify({ task_ids: taskIds }),
+  })
+}
+
 export async function exportDoc(): Promise<ExportDoc> {
   return request<ExportDoc>('/export')
 }

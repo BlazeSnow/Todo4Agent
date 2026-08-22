@@ -19,6 +19,8 @@ export interface Task {
   due_at: string | null
   created_at: string
   updated_at: string
+  /** 手动排序序号（越小越靠前） */
+  sort_order: number
 }
 
 /** 建任务输入 */

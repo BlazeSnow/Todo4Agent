@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode},
     response::Response,
-    routing::{get, patch},
+    routing::{get, patch, post},
     Json, Router,
 };
 use rusqlite::Connection;
@@ -169,6 +169,27 @@ async fn delete_task(State(st): State<SharedState>, Path(id): Path<i64>) -> ApiR
     }
 }
 
+#[derive(Deserialize)]
+struct ReorderInput {
+    task_ids: Vec<i64>,
+}
+
+/// 重排某分组内的任务（按 task_ids 的顺序）
+async fn reorder_tasks(
+    State(st): State<SharedState>,
+    Path(group_id): Path<i64>,
+    Json(body): Json<ReorderInput>,
+) -> ApiResult {
+    if body.task_ids.is_empty() {
+        return err(StatusCode::BAD_REQUEST, "task_ids 不能为空");
+    }
+    let c = st.db.lock().unwrap();
+    match db::reorder_tasks(&c, group_id, &body.task_ids) {
+        Ok(()) => ok_json(json!({ "ok": true })),
+        Err(e) => internal(e),
+    }
+}
+
 // ---------- 导出 ----------
 
 async fn export_json(State(st): State<SharedState>) -> ApiResult {
@@ -186,6 +207,7 @@ fn api_router(state: SharedState) -> Router {
         .route("/groups", get(list_groups).post(create_group))
         .route("/groups/{id}", patch(rename_group).delete(delete_group))
         .route("/tasks", get(list_tasks).post(create_task))
+        .route("/tasks/reorder/{group_id}", post(reorder_tasks))
         .route("/tasks/{id}", patch(update_task).delete(delete_task))
         .route("/export", get(export_json))
         .with_state(state)

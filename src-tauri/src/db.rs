@@ -25,6 +25,8 @@ pub struct Task {
     pub due_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// 手动排序序号（越小越靠前），默认 0
+    pub sort_order: i64,
 }
 
 /// 导出文档结构（与前端约定一致)
@@ -99,13 +101,30 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
             status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done')),
             due_at      TEXT,
             created_at  TEXT NOT NULL,
-            updated_at  TEXT NOT NULL
+            updated_at  TEXT NOT NULL,
+            sort_order  INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(group_id);
         "#,
     )?;
+    ensure_task_sort_column(&conn)?;
     seed_default_group(&conn)?;
     Ok(conn)
+}
+
+/// 为旧数据库迁移 sort_order 列（新建库已包含该列）
+fn ensure_task_sort_column(conn: &Connection) -> SqlResult<()> {
+    let has: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'sort_order'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|n| n > 0)?;
+    if !has {
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    Ok(())
 }
 
 /// 播种默认分组（不存在才插入，可重复调用）
@@ -146,13 +165,15 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> SqlResult<Task> {
         due_at: row.get(5)?,
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
+        sort_order: row.get(8)?,
     })
 }
 
 /// 分组查询的列顺序必须与 group_from_row 一致
 const GROUP_COLS: &str = "id, name, sort_order, created_at";
 /// 任务查询的列顺序必须与 task_from_row 一致
-const TASK_COLS: &str = "id, group_id, title, description, status, due_at, created_at, updated_at";
+const TASK_COLS: &str =
+    "id, group_id, title, description, status, due_at, created_at, updated_at, sort_order";
 
 pub fn list_groups(conn: &Connection) -> SqlResult<Vec<Group>> {
     let mut stmt = conn.prepare(&format!(
@@ -200,11 +221,12 @@ pub fn delete_group(conn: &Connection, id: i64) -> SqlResult<bool> {
 }
 
 pub fn list_tasks(conn: &Connection, group_id: Option<i64>) -> SqlResult<Vec<Task>> {
+    // 默认按手动排序序号，再按 id（创建先后）稳定排序
     let sql = match group_id {
         Some(_) => format!(
-            "SELECT {TASK_COLS} FROM tasks WHERE group_id = ?1 ORDER BY id"
+            "SELECT {TASK_COLS} FROM tasks WHERE group_id = ?1 ORDER BY sort_order, id"
         ),
-        None => format!("SELECT {TASK_COLS} FROM tasks ORDER BY id"),
+        None => format!("SELECT {TASK_COLS} FROM tasks ORDER BY sort_order, id"),
     };
     let mut stmt = conn.prepare(&sql)?;
     let rows = match group_id {
@@ -236,7 +258,23 @@ pub fn create_task(
         due_at: due_at.map(String::from),
         created_at: ts.clone(),
         updated_at: ts,
+        sort_order: 0,
     })
+}
+
+/// 按给定顺序重排某分组内的任务（task_ids 中任务的 sort_order 依次赋 0,1,2,...）
+/// 调用方需持锁独占访问（如 api 层 Mutex<Connection>），故使用 unchecked_transaction
+pub fn reorder_tasks(conn: &Connection, group_id: i64, task_ids: &[i64]) -> SqlResult<()> {
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut stmt = tx.prepare(
+            "UPDATE tasks SET sort_order = ?1, updated_at = ?2 WHERE id = ?3 AND group_id = ?4",
+        )?;
+        for (i, tid) in task_ids.iter().enumerate() {
+            stmt.execute(params![i as i64, now(), tid, group_id])?;
+        }
+    }
+    tx.commit()
 }
 
 /// 局部更新任务；任务不存在返回 Ok(None)
@@ -392,6 +430,33 @@ mod tests {
         assert_eq!(list_tasks(&c, None).unwrap().len(), 1);
         delete_group(&c, g.id).unwrap();
         assert_eq!(list_tasks(&c, None).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn reorder_tasks_order() {
+        let c = test_conn();
+        let gid = list_groups(&c).unwrap()[0].id;
+        let t1 = create_task(&c, gid, "A", "", None).unwrap();
+        let t2 = create_task(&c, gid, "B", "", None).unwrap();
+        let t3 = create_task(&c, gid, "C", "", None).unwrap();
+        assert_eq!(list_tasks(&c, Some(gid)).unwrap().len(), 3);
+
+        reorder_tasks(&c, gid, &[t3.id, t1.id, t2.id]).unwrap();
+        let ids: Vec<i64> = list_tasks(&c, Some(gid))
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, vec![t3.id, t1.id, t2.id]);
+
+        // 不影响其他分组
+        reorder_tasks(&c, gid, &[t2.id, t3.id, t1.id]).unwrap();
+        let ids: Vec<i64> = list_tasks(&c, Some(gid))
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, vec![t2.id, t3.id, t1.id]);
     }
 
     #[test]

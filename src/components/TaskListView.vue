@@ -1,31 +1,78 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import type { Task } from '../types'
 
-defineProps<{
+const props = defineProps<{
   tasks: Task[]
   loading: boolean
   /** 当前分组名（未选择时为 null） */
   groupName: string | null
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'create'): void
   (e: 'edit', task: Task): void
   (e: 'toggle', task: Task): void
   (e: 'remove', task: Task): void
+  (e: 'reorder', taskIds: number[]): void
 }>()
 
-function formatDue(iso: string): string {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return iso
-  return d.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+// ---------- 排序 ----------
+
+type SortMode = 'manual' | 'time' | 'title'
+
+const sortMode = ref<SortMode>('manual')
+const sortModeLabel = computed(
+  () => ({ manual: '手动排序（拖拽）', time: '按创建时间（新在前）', title: '按标题' })[sortMode.value],
+)
+
+/** 按当前排序模式展示的任务列表（不修改原始数组） */
+const displayedTasks = computed<Task[]>(() => {
+  const list = [...props.tasks]
+  if (sortMode.value === 'time') {
+    list.sort((a, b) => b.created_at.localeCompare(a.created_at))
+  } else if (sortMode.value === 'title') {
+    list.sort((a, b) => a.title.localeCompare(b.title, 'zh-Hans-CN'))
+  }
+  return list
+})
+
+// ---------- 拖拽重排（仅手动排序模式） ----------
+
+const draggingId = ref<number | null>(null)
+const overId = ref<number | null>(null)
+
+function onDragStart(task: Task, e: DragEvent) {
+  if (sortMode.value !== 'manual') return
+  draggingId.value = task.id
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(task.id))
+  }
 }
 
-function overdue(task: Task): boolean {
-  if (!task.due_at || task.status === 'done') return false
-  const d = new Date(task.due_at)
-  return !isNaN(d.getTime()) && d.getTime() < Date.now()
+function onDrop(task: Task) {
+  const from = draggingId.value
+  if (from == null || from === task.id) return
+  const list = [...props.tasks]
+  const fromIdx = list.findIndex((t) => t.id === from)
+  const toIdx = list.findIndex((t) => t.id === task.id)
+  if (fromIdx < 0 || toIdx < 0) return
+  const [item] = list.splice(fromIdx, 1)
+  list.splice(fromIdx < toIdx ? toIdx - 1 : toIdx, 0, item)
+  emit('reorder', list.map((t) => t.id))
 }
+
+function onDragEnd() {
+  draggingId.value = null
+  overId.value = null
+}
+
+const sortOptions: { value: SortMode; label: string }[] = [
+  { value: 'manual', label: '手动排序（拖拽）' },
+  { value: 'time', label: '按创建时间（新在前）' },
+  { value: 'title', label: '按标题' },
+]
 </script>
 
 <template>
@@ -34,7 +81,25 @@ function overdue(task: Task): boolean {
       <v-icon icon="mdi-folder-outline" class="mr-2" />
       <h2 class="text-h6">{{ groupName ?? '未选择分组' }}</h2>
       <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="$emit('create')">
+
+      <v-menu>
+        <template #activator="{ props }">
+          <v-btn v-bind="props" variant="text" prepend-icon="mdi-sort-variant">
+            排序：{{ sortModeLabel }}
+          </v-btn>
+        </template>
+        <v-list density="compact">
+          <v-list-item
+            v-for="opt in sortOptions"
+            :key="opt.value"
+            :title="opt.label"
+            :active="sortMode === opt.value"
+            @click="sortMode = opt.value"
+          />
+        </v-list>
+      </v-menu>
+
+      <v-btn color="primary" prepend-icon="mdi-plus" class="ml-2" @click="$emit('create')">
         新建任务
       </v-btn>
     </div>
@@ -44,11 +109,20 @@ function overdue(task: Task): boolean {
     <v-progress-linear v-if="loading" indeterminate class="mb-4" />
 
     <v-card
-      v-for="task in tasks"
+      v-for="task in displayedTasks"
       :key="task.id"
       class="mb-2"
       variant="outlined"
-      :class="{ 'opacity-60': task.status === 'done' }"
+      :class="{
+        'opacity-60': task.status === 'done',
+        'drag-target': overId === task.id && draggingId !== task.id,
+        'dragging': draggingId === task.id,
+      }"
+      :draggable="sortMode === 'manual'"
+      @dragstart="onDragStart(task, $event)"
+      @dragover.prevent="overId = task.id"
+      @drop.prevent="onDrop(task)"
+      @dragend="onDragEnd"
     >
       <v-list-item>
         <template #prepend>
@@ -93,3 +167,13 @@ function overdue(task: Task): boolean {
     />
   </div>
 </template>
+
+<style scoped>
+.dragging {
+  opacity: 0.4;
+}
+.drag-target {
+  outline: 2px dashed rgb(var(--v-theme-primary));
+  outline-offset: -2px;
+}
+</style>
