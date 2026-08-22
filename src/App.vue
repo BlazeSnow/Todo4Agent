@@ -268,6 +268,7 @@ async function copyMcpCommand() {
       app
       width="280"
       :temporary="isSmall"
+      :mobile-breakpoint="600"
       @update:model-value="(v) => (drawer = v)"
     >
       <GroupSidebar
