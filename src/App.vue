@@ -496,7 +496,7 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           @purge="onPurgeTrash"
           @empty="onEmptyTrash"
         />
-        <MCPView v-else @notify="notify" />
+        <MCPView v-else :current-user="currentUser" @notify="notify" />
       </v-container>
     </v-main>
 

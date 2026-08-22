@@ -1,10 +1,18 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
+const props = defineProps<{
+  /** 当前登录用户名（本地模式为 null） */
+  currentUser: string | null
+}>()
+
 const emit = defineEmits<{
   (e: 'notify', msg: string): void
 }>()
 
 // MCP 工具清单（与后端 mcp.rs 保持一致）
 const mcpTools = [
+  'app_version',
   'group_list / group_create / group_rename',
   'task_list / task_create / task_update',
   'task_complete / task_delete / task_export',
@@ -14,6 +22,35 @@ async function copyCommand() {
   try {
     await navigator.clipboard.writeText('todo4agent mcp')
     emit('notify', '已复制命令：todo4agent mcp')
+  } catch {
+    emit('notify', '复制失败，请手动复制')
+  }
+}
+
+/** 客户端配置示例：用户名动态填入当前登录用户 */
+const configText = computed(() =>
+  JSON.stringify(
+    {
+      mcpServers: {
+        todo4agent: {
+          command: 'todo4agent',
+          args: ['mcp'],
+          env: {
+            TODO4AGENT_USERNAME: props.currentUser ?? '你的用户名',
+            TODO4AGENT_PASSWORD: '你的密码',
+          },
+        },
+      },
+    },
+    null,
+    2,
+  ),
+)
+
+async function copyConfig() {
+  try {
+    await navigator.clipboard.writeText(configText.value)
+    emit('notify', '已复制 Agent 客户端配置')
   } catch {
     emit('notify', '复制失败，请手动复制')
   }
@@ -47,20 +84,21 @@ async function copyCommand() {
     </v-card>
 
     <v-card variant="outlined" class="mb-4">
-      <v-card-title>Agent 客户端配置示例</v-card-title>
+      <v-card-title>
+        Agent 客户端配置示例
+        <template #append>
+          <v-btn
+            size="small"
+            variant="tonal"
+            prepend-icon="mdi-content-copy"
+            @click="copyConfig"
+          >
+            复制配置
+          </v-btn>
+        </template>
+      </v-card-title>
       <v-card-text>
-        <pre class="bg-surface-variant pa-3 rounded"><code>{
-  "mcpServers": {
-    "todo4agent": {
-      "command": "todo4agent",
-      "args": ["mcp"],
-      "env": {
-        "TODO4AGENT_USERNAME": "你的用户名",
-        "TODO4AGENT_PASSWORD": "你的密码"
-      }
-    }
-  }
-}</code></pre>
+        <pre class="bg-surface-variant pa-3 rounded"><code>{{ configText }}</code></pre>
       </v-card-text>
     </v-card>
 
