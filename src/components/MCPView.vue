@@ -31,6 +31,10 @@ async function copyCommand() {
           本软件通过 MCP（Model Context Protocol，stdio 传输）向 Agent 暴露任务清单能力，
           Agent 以子进程方式启动并连接，与桌面端共用同一个数据库。
         </p>
+        <p class="mb-3">
+          多用户模式下需通过环境变量指定用户名与密码进行身份验证；验证失败将拒绝启动。
+          尚未创建用户时（本地模式）可省略凭据。
+        </p>
 
         <div class="d-flex align-center">
           <v-chip class="font-mono mr-2" variant="outlined" label>
@@ -50,7 +54,11 @@ async function copyCommand() {
   "mcpServers": {
     "todo4agent": {
       "command": "todo4agent",
-      "args": ["mcp"]
+      "args": ["mcp"],
+      "env": {
+        "TODO4AGENT_USERNAME": "你的用户名",
+        "TODO4AGENT_PASSWORD": "你的密码"
+      }
     }
   }
 }</code></pre>

@@ -385,14 +385,45 @@ fn handle(msg: &Value, conn: &Connection, user_id: Option<i64>) {
     }
 }
 
+/// 解析 MCP 身份：
+/// - 提供 TODO4AGENT_USERNAME / TODO4AGENT_PASSWORD 环境变量时校验凭据并绑定该用户；
+/// - 未提供凭据时：本地模式（尚无用户）可用，多用户模式拒绝启动。
+fn resolve_mcp_user(
+    conn: &Connection,
+    username: Option<&str>,
+    password: Option<&str>,
+) -> Result<Option<i64>, String> {
+    let users_exist = db::user_count(conn).unwrap_or(0) > 0;
+    match (username, password) {
+        (Some(u), Some(p)) => match db::verify_user(conn, u, p) {
+            Ok(Some(user)) => Ok(Some(user.id)),
+            Ok(None) => Err(format!("用户名或密码错误：{u}")),
+            Err(e) => Err(format!("验证用户失败：{e}")),
+        },
+        _ => {
+            if users_exist {
+                Err("多用户模式下 MCP 需要设置 TODO4AGENT_USERNAME 与 TODO4AGENT_PASSWORD 环境变量".to_string())
+            } else {
+                // 本地模式：无用户数据空间
+                Ok(None)
+            }
+        }
+    }
+}
+
 /// 主循环：逐行读取 stdin 的 JSON-RPC 消息并应答。
-/// 多用户模式下 MCP 绑定第一个用户（本机主用户视角操作数据）；未创建用户时为本地模式。
+/// 身份由环境变量 TODO4AGENT_USERNAME / TODO4AGENT_PASSWORD 指定并验证；
+/// 验证失败时向 stderr 输出原因并以非零码退出（MCP 客户端会显示启动失败）。
 pub fn serve(conn: &Connection) {
-    // 本机主用户 = 第一个注册的用户；无用户 → 本地模式（无主数据）
-    let user_id = db::list_users(conn)
-        .ok()
-        .and_then(|users| users.into_iter().next())
-        .map(|u| u.id);
+    let env_user = std::env::var("TODO4AGENT_USERNAME").ok();
+    let env_pass = std::env::var("TODO4AGENT_PASSWORD").ok();
+    let user_id = match resolve_mcp_user(conn, env_user.as_deref(), env_pass.as_deref()) {
+        Ok(uid) => uid,
+        Err(msg) => {
+            eprintln!("todo4agent-mcp: {msg}");
+            std::process::exit(1);
+        }
+    };
 
     let stdin = std::io::stdin();
     let mut line = String::new();
@@ -422,5 +453,36 @@ pub fn serve(conn: &Connection) {
             }
         };
         handle(&msg, conn, user_id);
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+    use std::path::Path;
+
+    fn test_conn() -> rusqlite::Connection {
+        db::open(Path::new(":memory:")).expect("open memory db")
+    }
+
+    #[test]
+    fn local_mode_no_credentials_ok() {
+        let c = test_conn();
+        assert_eq!(resolve_mcp_user(&c, None, None).unwrap(), None);
+        assert_eq!(resolve_mcp_user(&c, Some("x"), None).unwrap(), None);
+    }
+
+    #[test]
+    fn credentials_verify_and_bind() {
+        let c = test_conn();
+        db::create_user(&c, "alice", "pass1234").unwrap();
+        let uid = resolve_mcp_user(&c, Some("alice"), Some("pass1234")).unwrap();
+        assert!(uid.is_some());
+        // 错误密码 / 不存在用户
+        assert!(resolve_mcp_user(&c, Some("alice"), Some("wrong")).is_err());
+        assert!(resolve_mcp_user(&c, Some("nobody"), Some("pass1234")).is_err());
+        // 多用户模式缺凭据拒绝
+        assert!(resolve_mcp_user(&c, None, None).is_err());
+        assert!(resolve_mcp_user(&c, Some("alice"), None).is_err());
     }
 }
