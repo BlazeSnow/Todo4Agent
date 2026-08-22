@@ -1,0 +1,32 @@
+# Dependabot 自动更新依赖（每周一检查，打开依赖升级 PR）
+version: 2
+updates:
+# Rust 后端依赖（src-tauri/Cargo.toml 与 Cargo.lock）
+- package-ecosystem: "cargo"
+  directory: "/src-tauri"
+  schedule:
+    interval: "weekly"
+    day: "monday"
+    time: "09:00"
+    timezone: "Asia/Shanghai"
+  open-pull-requests-limit: 5
+
+# 前端依赖（package.json 与 pnpm-lock.yaml）
+- package-ecosystem: "npm"
+  directory: "/"
+  schedule:
+    interval: "weekly"
+    day: "monday"
+    time: "09:00"
+    timezone: "Asia/Shanghai"
+  open-pull-requests-limit: 5
+
+# GitHub Actions 工作流依赖（.github/workflows/release.yml）
+- package-ecosystem: "github-actions"
+  directory: "/"
+  schedule:
+    interval: "weekly"
+    day: "monday"
+    time: "09:00"
+    timezone: "Asia/Shanghai"
+  open-pull-requests-limit: 5
