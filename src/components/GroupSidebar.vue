@@ -64,22 +64,22 @@ defineEmits<{
 
     <v-list-item prepend-icon="mdi-plus" title="新增分组" @click="$emit('create')" />
 
+    <v-list-item
+      prepend-icon="mdi-trash-can-outline"
+      title="回收站"
+      :active="activeView === 'trash'"
+      @click="$emit('trash')"
+    />
+
     <v-divider class="my-2" />
 
-    <v-list-subheader>Agent 接入</v-list-subheader>
+    <v-list-subheader>更多</v-list-subheader>
     <v-list-item
       prepend-icon="mdi-connection"
       title="Agent 接入（MCP）"
       subtitle="点击查看连接说明"
       :active="activeView === 'mcp'"
       @click="$emit('mcp')"
-    />
-
-    <v-list-item
-      prepend-icon="mdi-trash-can-outline"
-      title="回收站"
-      :active="activeView === 'trash'"
-      @click="$emit('trash')"
     />
 
     <v-list-item
