@@ -36,6 +36,14 @@ const groupDialogMode = ref<'create' | 'rename'>('create')
 const groupDialogTarget = ref<Group | null>(null)
 const confirmDialog = ref(false)
 const confirmAction = ref<{ type: 'group' | 'task'; id: number } | null>(null)
+const mcpDialog = ref(false)
+
+// MCP 工具清单（与后端 mcp.rs 保持一致）
+const mcpTools = [
+  'group_list / group_create / group_rename',
+  'task_list / task_create / task_update',
+  'task_complete / task_delete / task_export',
+]
 
 const selectedGroup = computed(
   () => groups.value.find((g) => g.id === selectedGroupId.value) ?? null,
@@ -214,6 +222,15 @@ function overdue(task: Task): boolean {
   const d = new Date(task.due_at)
   return !isNaN(d.getTime()) && d.getTime() < Date.now()
 }
+
+async function copyMcpCommand() {
+  try {
+    await navigator.clipboard.writeText('todo4agent mcp')
+    notify('已复制命令：todo4agent mcp')
+  } catch {
+    notify('复制失败，请手动复制')
+  }
+}
 </script>
 
 <template>
@@ -249,6 +266,7 @@ function overdue(task: Task): boolean {
         @create="openCreateGroup"
         @rename="openRenameGroup"
         @delete="onDeleteGroup"
+        @mcp="mcpDialog = true"
       />
     </v-navigation-drawer>
 
@@ -363,6 +381,68 @@ function overdue(task: Task): boolean {
           >
             删除
           </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="mcpDialog" max-width="560">
+      <v-card>
+        <v-card-title>
+          <v-icon icon="mdi-connection" class="mr-2" />
+          Agent 接入（MCP）
+        </v-card-title>
+        <v-card-text>
+          <p class="mb-2">
+            本软件通过 MCP（Model Context Protocol，stdio 传输）向 Agent 暴露任务清单能力，
+            Agent 以子进程方式启动并连接，与桌面端共用同一个数据库。
+          </p>
+
+          <div class="d-flex align-center">
+            <v-chip
+              class="font-mono mr-2"
+              variant="outlined"
+              label
+              data-testid="mcp-command"
+            >
+              todo4agent mcp
+            </v-chip>
+            <v-btn
+              size="small"
+              variant="tonal"
+              prepend-icon="mdi-content-copy"
+              @click="copyMcpCommand"
+            >
+              复制命令
+            </v-btn>
+          </div>
+
+          <v-divider class="my-3" />
+
+          <div class="text-subtitle-2 mb-1">Agent 客户端配置示例：</div>
+          <pre class="bg-grey-lighten-3 pa-3 rounded"><code>{
+  "mcpServers": {
+    "todo4agent": {
+      "command": "todo4agent",
+      "args": ["mcp"]
+    }
+  }
+}</code></pre>
+
+          <v-divider class="my-3" />
+
+          <div class="text-subtitle-2 mb-1">可用工具：</div>
+          <v-list density="compact">
+            <v-list-item v-for="t in mcpTools" :key="t">
+              <template #prepend>
+                <v-icon icon="mdi-wrench" size="small" class="mr-2" />
+              </template>
+              <v-list-item-title class="font-mono text-body-2">{{ t }}</v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="mcpDialog = false">关闭</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

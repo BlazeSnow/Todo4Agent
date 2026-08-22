@@ -12,6 +12,7 @@ defineEmits<{
   (e: 'create'): void
   (e: 'rename', group: Group): void
   (e: 'delete', group: Group): void
+  (e: 'mcp'): void
 }>()
 </script>
 
@@ -64,9 +65,9 @@ defineEmits<{
     <v-list-subheader>Agent 接入</v-list-subheader>
     <v-list-item
       prepend-icon="mdi-connection"
-      title="MCP 服务"
-      subtitle="todo4agent mcp"
-      :disabled="true"
+      title="Agent 接入（MCP）"
+      subtitle="点击查看连接说明"
+      @click="$emit('mcp')"
     />
   </v-list>
 </template>
