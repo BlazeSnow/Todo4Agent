@@ -17,6 +17,7 @@ import {
   updateTask,
 } from './api'
 import type { Group, Task, TaskInput } from './types'
+import packageJson from '../package.json'
 
 const groups = ref<Group[]>([])
 const tasks = ref<Task[]>([])
@@ -42,6 +43,7 @@ const groupDialogTarget = ref<Group | null>(null)
 const confirmDialog = ref(false)
 const confirmAction = ref<{ type: 'group' | 'task'; id: number } | null>(null)
 const mcpDialog = ref(false)
+const settingsDialog = ref(false)
 
 // MCP 工具清单（与后端 mcp.rs 保持一致）
 const mcpTools = [
@@ -208,6 +210,7 @@ async function onExport() {
   try {
     const doc = await exportDoc()
     downloadExport(doc)
+    settingsDialog.value = false
     notify('已导出 JSON')
   } catch (e) {
     notify((e as Error).message)
@@ -257,10 +260,8 @@ async function copyMcpCommand() {
           为 Agent 设计的 MCP 任务清单
         </span>
       </v-app-bar-title>
-      <v-btn variant="text" prepend-icon="mdi-export-variant" @click="onExport">
-        导出 JSON
-      </v-btn>
       <v-btn variant="text" prepend-icon="mdi-refresh" @click="loadGroups">刷新</v-btn>
+      <v-btn icon="mdi-cog" variant="text" aria-label="设置" @click="settingsDialog = true" />
     </v-app-bar>
 
     <v-navigation-drawer
@@ -394,6 +395,41 @@ async function copyMcpCommand() {
           >
             删除
           </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="settingsDialog" max-width="480">
+      <v-card>
+        <v-card-title>
+          <v-icon icon="mdi-cog-outline" class="mr-2" />
+          设置
+        </v-card-title>
+        <v-card-text>
+          <div class="text-subtitle-2 mb-2">数据</div>
+          <v-btn color="primary" prepend-icon="mdi-export-variant" @click="onExport">
+            导出 JSON
+          </v-btn>
+          <p class="text-caption mt-2 text-medium-emphasis">
+            将全部任务清单导出为 JSON 文件，便于备份或迁移。
+          </p>
+
+          <v-divider class="my-4" />
+
+          <div class="text-subtitle-2 mb-2">关于</div>
+          <v-list density="compact">
+            <v-list-item title="版本">
+              <template #append>
+                <span class="text-medium-emphasis">v{{ packageJson.version }}</span>
+              </template>
+            </v-list-item>
+            <v-list-item title="软件说明" subtitle="为 Agent 设计的 MCP 任务清单" />
+            <v-list-item title="仓库" subtitle="github.com/BlazeSnow/Todo4Agent" />
+          </v-list>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="settingsDialog = false">关闭</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
