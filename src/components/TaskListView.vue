@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Task } from '../types'
+import ContextMenu, { type ContextMenuItem } from './ContextMenu.vue'
 
 const props = defineProps<{
   tasks: Task[]
@@ -73,6 +74,50 @@ function moveTask(task: Task, dir: -1 | 1) {
   emit('reorder', list.map((t) => t.id))
 }
 
+// ---------- 右键菜单 ----------
+
+const taskCtx = ref<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
+
+function openTaskCtx(task: Task, e: MouseEvent) {
+  e.preventDefault()
+  taskCtx.value = {
+    x: e.clientX,
+    y: e.clientY,
+    items: [
+      {
+        label: task.status === 'done' ? '标记未完成' : '标记完成',
+        icon: 'mdi-check',
+        action: () => emit('toggle', task),
+      },
+      // 非默认排序下移动无意义，与「更多操作」菜单保持一致
+      ...(sortMode.value === null
+        ? [
+            {
+              label: '上移',
+              icon: 'mdi-arrow-up',
+              disabled: !canMove(task, -1),
+              action: () => moveTask(task, -1),
+            },
+            {
+              label: '下移',
+              icon: 'mdi-arrow-down',
+              disabled: !canMove(task, 1),
+              action: () => moveTask(task, 1),
+            },
+          ]
+        : []),
+      { divider: true },
+      { label: '编辑', icon: 'mdi-pencil', action: () => emit('edit', task) },
+      {
+        label: '删除',
+        icon: 'mdi-delete',
+        color: 'error',
+        action: () => emit('remove', task),
+      },
+    ],
+  }
+}
+
 const sortOptions: { value: SortMode | null; label: string }[] = [
   { value: null, label: '默认顺序' },
   { value: 'time', label: '按截止时间' },
@@ -126,7 +171,7 @@ function overdue(task: Task): boolean {
     <div v-if="loading" class="list-loading" />
 
     <!-- 任务卡片（原生结构，便于后续界面优化） -->
-    <div class="task-item" v-for="task in displayedTasks" :key="task.id">
+    <div class="task-item" v-for="task in displayedTasks" :key="task.id" @contextmenu.stop="openTaskCtx(task, $event)">
       <input
         type="checkbox"
         class="task-check"
@@ -193,6 +238,14 @@ function overdue(task: Task): boolean {
       <div class="empty-title">暂无任务</div>
       <div class="empty-text">点击右上角「新建任务」，或让 Agent 通过 MCP 添加</div>
     </div>
+
+    <ContextMenu
+      v-if="taskCtx"
+      :items="taskCtx.items"
+      :x="taskCtx.x"
+      :y="taskCtx.y"
+      @close="taskCtx = null"
+    />
   </div>
 </template>
 

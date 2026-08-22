@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { Group } from '../types'
+import ContextMenu, { type ContextMenuItem } from './ContextMenu.vue'
 
 const props = defineProps<{
   groups: Group[]
@@ -39,6 +41,35 @@ function moveGroup(group: Group, dir: -1 | 1) {
   list[target] = tmp
   emit('reorder', list.map((g) => g.id))
 }
+
+// ---------- 右键菜单 ----------
+
+const groupCtx = ref<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
+
+function openGroupCtx(group: Group, e: MouseEvent) {
+  e.preventDefault()
+  groupCtx.value = {
+    x: e.clientX,
+    y: e.clientY,
+    items: [
+      {
+        label: '上移',
+        icon: 'mdi-arrow-up',
+        disabled: !canMoveGroup(group, -1),
+        action: () => moveGroup(group, -1),
+      },
+      {
+        label: '下移',
+        icon: 'mdi-arrow-down',
+        disabled: !canMoveGroup(group, 1),
+        action: () => moveGroup(group, 1),
+      },
+      { divider: true },
+      { label: '重命名', icon: 'mdi-pencil', action: () => emit('rename', group) },
+      { label: '删除', icon: 'mdi-delete', color: 'error', action: () => emit('delete', group) },
+    ],
+  }
+}
 </script>
 
 <template>
@@ -51,6 +82,7 @@ function moveGroup(group: Group, dir: -1 | 1) {
       :active="activeView === 'tasks' && selectedId === group.id"
       :title="group.name"
       @click="$emit('select', group.id)"
+      @contextmenu.stop="openGroupCtx(group, $event)"
     >
       <template #prepend>
         <v-icon icon="mdi-folder" />
@@ -123,4 +155,12 @@ function moveGroup(group: Group, dir: -1 | 1) {
       @click="$emit('settings')"
     />
   </v-list>
+
+  <ContextMenu
+    v-if="groupCtx"
+    :items="groupCtx.items"
+    :x="groupCtx.x"
+    :y="groupCtx.y"
+    @close="groupCtx = null"
+  />
 </template>

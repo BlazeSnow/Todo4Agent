@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 import GroupSidebar from './components/GroupSidebar.vue'
+import ContextMenu, { type ContextMenuItem } from './components/ContextMenu.vue'
 import GroupDialog from './components/GroupDialog.vue'
 import TaskDialog from './components/TaskDialog.vue'
 import TaskListView from './components/TaskListView.vue'
@@ -373,6 +374,33 @@ async function onImported() {
   await Promise.all([loadGroups(), loadTrash()])
   if (selectedGroupId.value != null) await loadTasks()
 }
+
+// ---------- 全局右键菜单（接管浏览器默认菜单） ----------
+
+const globalCtx = ref<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
+
+function onGlobalContextMenu(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  // 输入类元素保留 WebView2 原生的复制/粘贴菜单
+  if (target.closest('input, textarea, [contenteditable="true"]')) return
+  e.preventDefault()
+  globalCtx.value = {
+    x: e.clientX,
+    y: e.clientY,
+    items: [
+      {
+        label: '新建任务',
+        icon: 'mdi-plus',
+        disabled: currentView.value !== 'tasks' || selectedGroupId.value == null,
+        action: openCreateTask,
+      },
+      { label: '刷新', icon: 'mdi-refresh', action: () => loadGroups() },
+    ],
+  }
+}
+
+onMounted(() => window.addEventListener('contextmenu', onGlobalContextMenu))
+onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextMenu))
 </script>
 
 <template>
@@ -484,6 +512,14 @@ async function onImported() {
     <v-snackbar v-model="snackbar.show" :timeout="3000" location="bottom">
       {{ snackbar.text }}
     </v-snackbar>
+
+    <ContextMenu
+      v-if="globalCtx"
+      :items="globalCtx.items"
+      :x="globalCtx.x"
+      :y="globalCtx.y"
+      @close="globalCtx = null"
+    />
     </template>
   </v-app>
 </template>
