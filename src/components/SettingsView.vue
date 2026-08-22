@@ -226,7 +226,7 @@ async function changePassword() {
           创建用户
         </v-btn>
         <p class="text-caption mt-2 text-medium-emphasis">
-          首个用户将接管当前本地数据；之后注册的用户拥有独立数据空间。
+          每个用户拥有独立的数据空间，互不可见。
         </p>
 
         <v-divider class="my-3" />

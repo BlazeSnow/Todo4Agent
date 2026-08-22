@@ -74,9 +74,6 @@ async function doRegister() {
         >
           初始用户 admin，默认密码 admin123，请登录后尽快在设置中修改密码。
         </v-alert>
-        <p class="text-body-2 text-medium-emphasis mb-4">
-          尚未创建用户时，注册将创建首个用户并接管现有本地数据。
-        </p>
         <v-text-field
           v-model="username"
           label="用户名"
