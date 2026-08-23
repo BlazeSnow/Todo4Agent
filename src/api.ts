@@ -1,4 +1,13 @@
-import type { AuthStatus, ExportDoc, Group, Task, TaskInput, TaskUpdate } from './types'
+import type {
+  AuthStatus,
+  ExportDoc,
+  Group,
+  ImportResult,
+  SettingsInfo,
+  Task,
+  TaskInput,
+  TaskUpdate,
+} from './types'
 
 const TOKEN_KEY = 'todo4agent_token'
 

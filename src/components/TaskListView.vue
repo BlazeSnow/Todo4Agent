@@ -153,7 +153,7 @@ function overdue(task: Task): boolean {
           <v-list density="compact">
             <v-list-item
               v-for="opt in sortOptions"
-              :key="opt.value"
+              :key="opt.value ?? 'default'"
               :title="opt.label"
               :active="sortMode === opt.value"
               @click="toggleSort(opt.value)"
