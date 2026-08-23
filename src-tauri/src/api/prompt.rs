@@ -8,9 +8,9 @@ use serde_json::json;
 use super::*;
 use crate::db;
 
-// ---------- 提示词（Agent 协作规范，类似 AGENTS.md） ----------
+// ---------- 提示词（Agent 协作规范，类似 AGENTS.md；默认为空，用户自行填写） ----------
 
-/// 获取当前用户提示词（未自定义时返回默认）；附带默认内容供界面「恢复默认」
+/// 获取当前用户提示词（未设置时 content 为空、is_default 为 true）
 pub async fn get_prompt(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
@@ -20,14 +20,12 @@ pub async fn get_prompt(
         Ok(Some((content, updated_at))) => ok_json(json!({
             "content": content,
             "is_default": false,
-            "updated_at": updated_at,
-            "default_content": db::DEFAULT_PROMPT
+            "updated_at": updated_at
         })),
         Ok(None) => ok_json(json!({
-            "content": db::DEFAULT_PROMPT,
+            "content": "",
             "is_default": true,
-            "updated_at": null,
-            "default_content": db::DEFAULT_PROMPT
+            "updated_at": null
         })),
         Err(e) => internal(e),
     }
@@ -38,22 +36,26 @@ pub struct PromptInput {
     content: String,
 }
 
-/// 全量保存提示词（与 MCP prompt_update 走同一 db 实现）
+/// 全量保存提示词（与 MCP prompt_update 走同一 db 实现）；
+/// 空白内容视为清空，回到默认空提示词
 pub async fn put_prompt(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
     Json(body): Json<PromptInput>,
 ) -> ApiResult {
-    if body.content.trim().is_empty() {
-        return err(StatusCode::BAD_REQUEST, "提示词不能为空");
-    }
     let c = st.db.lock().unwrap();
     match db::set_prompt(&c, cur.0, &body.content) {
-        Ok(updated_at) => ok_json(json!({
+        Ok((true, None)) => ok_json(json!({
+            "content": "",
+            "is_default": true,
+            "updated_at": null
+        })),
+        Ok((false, Some(updated_at))) => ok_json(json!({
             "content": body.content,
             "is_default": false,
             "updated_at": updated_at
         })),
-        Err(e) => internal(e),
+        // set_prompt 的两个返回形状已穷尽
+        _ => err(StatusCode::INTERNAL_SERVER_ERROR, "保存提示词结果异常"),
     }
 }

@@ -185,16 +185,16 @@ pub(super) fn tools() -> Vec<ToolDef> {
         ),
         ToolDef::new(
             "prompt_get",
-            "读取当前用户的 Agent 提示词（协作规范，类似 AGENTS.md；未自定义时返回默认）",
+            "读取当前用户的 Agent 提示词（协作规范，类似 AGENTS.md）；默认为空，content 为空表示尚未设置",
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
             "prompt_update",
-            "全量更新当前用户的 Agent 提示词；建议先 prompt_get 获取当前内容，按需修改后整体写回",
+            "全量更新当前用户的 Agent 提示词；建议先 prompt_get 获取当前内容，按需修改后整体写回；传空字符串为清空",
             json!({
                 "type": "object",
                 "properties": {
-                    "content": { "type": "string", "description": "新提示词全文（必填）" }
+                    "content": { "type": "string", "description": "新提示词全文；传空字符串清空（必填）" }
                 },
                 "required": ["content"]
             }),
@@ -439,18 +439,21 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
             ),
             Ok(None) => tool_result(
                 id,
-                json!({ "content": db::DEFAULT_PROMPT, "is_default": true, "updated_at": null }).to_string(),
+                json!({ "content": "", "is_default": true, "updated_at": null }).to_string(),
             ),
             Err(e) => db_err(e),
         },
 
         "prompt_update" => {
             let content = match args.get("content").and_then(Value::as_str) {
-                Some(s) if !s.trim().is_empty() => s.to_string(),
-                _ => return tool_error(id, "参数错误: content 必填且不能为空".into()),
+                Some(s) => s.to_string(),
+                None => return tool_error(id, "参数错误: content 必填且必须是字符串".into()),
             };
             match db::set_prompt(conn, user_id, &content) {
-                Ok(updated_at) => tool_result(id, json!({ "ok": true, "updated_at": updated_at }).to_string()),
+                Ok((is_default, updated_at)) => tool_result(
+                    id,
+                    json!({ "ok": true, "is_default": is_default, "updated_at": updated_at }).to_string(),
+                ),
                 Err(e) => db_err(e),
             }
         }

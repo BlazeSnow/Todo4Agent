@@ -81,14 +81,12 @@ export interface ImportResult {
   tasks_skipped: number
 }
 
-/** Agent 提示词（协作规范，类似 AGENTS.md） */
+/** Agent 提示词（协作规范，类似 AGENTS.md；默认为空） */
 export interface PromptInfo {
   content: string
-  /** 是否仍为内置默认（未自定义） */
+  /** 是否为默认状态（未自定义 / 已清空） */
   is_default: boolean
   updated_at: string | null
-  /** 内置默认内容（仅 GET 返回，供界面「恢复默认」） */
-  default_content?: string
 }
 
 /** 认证状态 */
