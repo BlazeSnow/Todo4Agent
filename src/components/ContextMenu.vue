@@ -59,19 +59,23 @@ const style = computed(() => ({
 </script>
 
 <template>
-  <div class="ctx-menu" :style="style" @contextmenu.prevent @click.stop>
-    <v-list density="compact" nav>
-      <template v-for="(item, i) in items" :key="i">
-        <v-divider v-if="item.divider" />
-        <v-list-item v-else :disabled="item.disabled" :color="item.color" @click="pick(item)">
-          <template v-if="item.icon" #prepend>
-            <v-icon :icon="item.icon" :color="item.color" />
-          </template>
-          <v-list-item-title>{{ item.label }}</v-list-item-title>
-        </v-list-item>
-      </template>
-    </v-list>
-  </div>
+  <!-- 挂到 body：菜单可能渲染在 v-navigation-drawer 内，抽屉的 transform
+       （哪怕恒等矩阵）会让 position:fixed 改以抽屉为包含块，导致菜单位置偏移 -->
+  <Teleport to="body">
+    <div class="ctx-menu" :style="style" @contextmenu.prevent @click.stop>
+      <v-list density="compact" nav>
+        <template v-for="(item, i) in items" :key="i">
+          <v-divider v-if="item.divider" />
+          <v-list-item v-else :disabled="item.disabled" :color="item.color" @click="pick(item)">
+            <template v-if="item.icon" #prepend>
+              <v-icon :icon="item.icon" :color="item.color" />
+            </template>
+            <v-list-item-title>{{ item.label }}</v-list-item-title>
+          </v-list-item>
+        </template>
+      </v-list>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
