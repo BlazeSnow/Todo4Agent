@@ -15,7 +15,7 @@ pub async fn auth_status(State(st): State<SharedState>, headers: HeaderMap) -> A
     let c = st.db.lock().unwrap();
     let has_default_password = db::has_default_password_user(&c).unwrap_or(false);
     let allow_register = db::get_allow_register(&c).unwrap_or(true);
-    let uid = bearer_token(&headers).and_then(|t| st.sessions.user_id(t));
+    let uid = bearer_token(&headers).and_then(|t| db::session_user_id(&c, t).ok().flatten());
     let username = uid.and_then(|uid| {
         db::list_users(&c)
             .ok()
@@ -42,14 +42,14 @@ pub async fn auth_login(
 ) -> ApiResult {
     let c = st.db.lock().unwrap();
     match db::verify_user(&c, &body.username, &body.password) {
-        Ok(Some(user)) => {
-            let token = st.sessions.issue(&c, user.id);
-            ok_json(json!({
+        Ok(Some(user)) => match db::issue_session(&c, user.id) {
+            Ok(token) => ok_json(json!({
                 "token": token,
                 "user_id": user.id,
                 "username": user.username
-            }))
-        }
+            })),
+            Err(e) => internal(e),
+        },
         Ok(None) => err(StatusCode::UNAUTHORIZED, "用户名或密码错误"),
         Err(e) => internal(e),
     }
@@ -72,14 +72,14 @@ pub async fn auth_register(
         return err(StatusCode::FORBIDDEN, "注册已关闭");
     }
     match db::create_user(&c, username, &body.password) {
-        Ok(user) => {
-            let token = st.sessions.issue(&c, user.id);
-            ok_json(json!({
+        Ok(user) => match db::issue_session(&c, user.id) {
+            Ok(token) => ok_json(json!({
                 "token": token,
                 "user_id": user.id,
                 "username": user.username
-            }))
-        }
+            })),
+            Err(e) => internal(e),
+        },
         Err(e) if db::is_unique_violation(&e) => err(StatusCode::CONFLICT, "用户名已存在"),
         Err(e) => internal(e),
     }
@@ -89,7 +89,7 @@ pub async fn auth_register(
 pub async fn auth_logout(State(st): State<SharedState>, headers: HeaderMap) -> ApiResult {
     if let Some(t) = bearer_token(&headers) {
         let c = st.db.lock().unwrap();
-        st.sessions.revoke(&c, t);
+        let _ = db::delete_session(&c, t);
     }
     ok_json(json!({ "ok": true }))
 }
@@ -115,7 +115,7 @@ pub async fn auth_password(
     match db::change_user_password(&c, uid, &body.old_password, &body.new_password) {
         Ok(true) => {
             let keep = bearer_token(&headers).map(String::from);
-            st.sessions.revoke_for_user(&c, uid, keep.as_deref());
+            let _ = db::delete_user_sessions(&c, uid, keep.as_deref());
             ok_json(json!({ "ok": true }))
         }
         Ok(false) => err(StatusCode::BAD_REQUEST, "原密码错误"),

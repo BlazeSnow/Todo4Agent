@@ -23,14 +23,11 @@ use std::{
 use tower::Service;
 
 use crate::db;
-use crate::auth as auth_crate;
 
 pub struct AppState {
     pub db: Mutex<Connection>,
     /// 实际监听的端口（供设置页展示）
     pub effective_port: u16,
-    /// 会话（token -> user_id）
-    pub sessions: auth_crate::Sessions,
 }
 pub type SharedState = Arc<AppState>;
 
@@ -87,7 +84,12 @@ async fn require_auth(State(st): State<SharedState>, mut req: Request, next: Nex
     }
     let unauthorized =
         (StatusCode::UNAUTHORIZED, Json(json!({ "error": "未登录或登录已失效" }))).into_response();
-    match bearer_token(req.headers()).and_then(|t| st.sessions.user_id(t)) {
+    // 会话直接查库：与桌面 / mcp 进程共享同一数据库，签发与吊销实时一致
+    let uid = bearer_token(req.headers()).and_then(|t| {
+        let c = st.db.lock().unwrap();
+        db::session_user_id(&c, t).ok().flatten()
+    });
+    match uid {
         Some(uid) => {
             req.extensions_mut().insert(CurrentUser(uid));
             next.run(req).await
@@ -199,12 +201,9 @@ pub fn serve_blocking(port_override: Option<u16>) {
         } else {
             println!("Todo4Agent WebUI: http://127.0.0.1:{port} （仅本机可访问）");
         }
-        let sessions = auth_crate::Sessions::default();
-        sessions.load_from_db(&conn);
         let state = Arc::new(AppState {
             db: Mutex::new(conn),
             effective_port: port,
-            sessions,
         });
         if let Err(e) = axum::serve(listener, app(state)).await {
             eprintln!("HTTP 服务错误: {e}");
@@ -230,12 +229,9 @@ pub fn spawn_server(port_override: Option<u16>) -> u16 {
                 println!("Todo4Agent WebUI: http://127.0.0.1:{port} （仅本机可访问）");
             }
             let _ = tx.send(port);
-            let sessions = auth_crate::Sessions::default();
-            sessions.load_from_db(&conn);
             let state = Arc::new(AppState {
                 db: Mutex::new(conn),
                 effective_port: port,
-                sessions,
             });
             if let Err(e) = axum::serve(listener, app(state)).await {
                 eprintln!("HTTP 服务错误: {e}");

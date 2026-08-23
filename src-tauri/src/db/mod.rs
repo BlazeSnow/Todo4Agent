@@ -278,39 +278,7 @@ pub fn has_default_password_user(conn: &Connection) -> SqlResult<bool> {
     .map(|n| n > 0)
 }
 // ---------- 会话持久化 ----------
-
-pub fn load_sessions(conn: &Connection) -> SqlResult<Vec<(String, i64)>> {
-    let mut stmt = conn.prepare("SELECT token, user_id FROM sessions")?;
-    let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
-    rows.collect()
-}
-
-pub fn save_session(conn: &Connection, token: &str, user_id: i64) -> SqlResult<()> {
-    conn.execute(
-        "INSERT INTO sessions (token, user_id) VALUES (?1, ?2)
-         ON CONFLICT(token) DO UPDATE SET user_id = excluded.user_id",
-        params![token, user_id],
-    )?;
-    Ok(())
-}
-
-pub fn delete_session(conn: &Connection, token: &str) -> SqlResult<()> {
-    conn.execute("DELETE FROM sessions WHERE token = ?1", params![token])?;
-    Ok(())
-}
-
-/// 删除某用户全部会话；keep 指定的 token 保留（改密后保留当前登录）
-pub fn delete_user_sessions(conn: &Connection, user_id: i64, keep: Option<&str>) -> SqlResult<()> {
-    match keep {
-        Some(t) => conn.execute(
-            "DELETE FROM sessions WHERE user_id = ?1 AND token != ?2",
-            params![user_id, t],
-        ),
-        None => conn.execute("DELETE FROM sessions WHERE user_id = ?1", params![user_id]),
-    }?;
-    Ok(())
-}
-
+// 签发 / 校验 / 吊销见 db::sessions（直接落库，多进程共享数据库时实时一致）
 
 // ---------- 用户 ----------
 
@@ -366,6 +334,7 @@ pub mod users;
 
 pub use export::*;
 pub use groups::*;
+pub use sessions::*;
 pub use settings::*;
 pub use tasks::*;
 pub use trash::*;
