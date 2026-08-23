@@ -22,12 +22,11 @@ pub fn list_users(conn: &Connection) -> SqlResult<Vec<User>> {
 
 /// 创建用户；用户名重复返回 Err（UNIQUE 约束）
 pub fn create_user(conn: &Connection, username: &str, password: &str) -> SqlResult<User> {
-    let salt = auth::new_salt();
-    let hash = auth::hash_password(password, &salt);
+    let stored = auth::new_password_hash(password);
     let created_at = now();
     conn.execute(
         "INSERT INTO users (username, salt, password_hash, created_at) VALUES (?1, ?2, ?3, ?4)",
-        params![username, salt, hash, created_at],
+        params![username, auth::salt_of_hash(&stored), stored, created_at],
     )?;
     let id = conn.last_insert_rowid();
     // 首个用户接管本地模式遗留的无主数据
@@ -44,7 +43,7 @@ pub fn create_user(conn: &Connection, username: &str, password: &str) -> SqlResu
     })
 }
 
-/// 校验用户名密码；成功返回用户
+/// 校验用户名密码；成功返回用户。旧格式（单轮 SHA-256）哈希在登录成功时透明升级为 PBKDF2
 pub fn verify_user(conn: &Connection, username: &str, password: &str) -> SqlResult<Option<User>> {
     let row = conn
         .query_row(
@@ -63,13 +62,20 @@ pub fn verify_user(conn: &Connection, username: &str, password: &str) -> SqlResu
             },
         )
         .optional()?;
-    Ok(row.and_then(|(user, salt, hash)| {
-        if auth::hash_password(password, &salt) == hash {
-            Some(user)
-        } else {
-            None
-        }
-    }))
+    let Some((user, salt, hash)) = row else {
+        return Ok(None);
+    };
+    if !auth::verify_password(password, &salt, &hash) {
+        return Ok(None);
+    }
+    if auth::is_legacy_password_hash(&hash) {
+        let stored = auth::new_password_hash(password);
+        conn.execute(
+            "UPDATE users SET salt = ?1, password_hash = ?2 WHERE id = ?3",
+            params![auth::salt_of_hash(&stored), stored, user.id],
+        )?;
+    }
+    Ok(Some(user))
 }
 
 /// 修改用户密码
@@ -87,14 +93,13 @@ pub fn change_user_password(
         )
         .optional()?;
     let Some((salt, hash)) = row else { return Ok(false) };
-    if auth::hash_password(old_password, &salt) != hash {
+    if !auth::verify_password(old_password, &salt, &hash) {
         return Ok(false);
     }
-    let new_salt = auth::new_salt();
-    let new_hash = auth::hash_password(new_password, &new_salt);
+    let stored = auth::new_password_hash(new_password);
     conn.execute(
         "UPDATE users SET salt = ?1, password_hash = ?2, default_password = 0 WHERE id = ?3",
-        params![new_salt, new_hash, user_id],
+        params![auth::salt_of_hash(&stored), stored, user_id],
     )?;
     Ok(true)
 }
@@ -104,7 +109,36 @@ pub fn change_user_password(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth;
     use crate::db::test_conn;
+
+    #[test]
+    fn legacy_password_upgraded_on_login() {
+        let (c, _admin) = test_conn();
+        // 手工插入旧格式（单轮 SHA-256）用户，模拟历史存量数据
+        let salt = auth::new_salt();
+        let legacy = auth::hash_password("oldpass", &salt);
+        c.execute(
+            "INSERT INTO users (username, salt, password_hash, created_at)
+             VALUES ('legacy', ?1, ?2, '2026-01-01T00:00:00Z')",
+            params![salt, legacy],
+        )
+        .unwrap();
+
+        let u = verify_user(&c, "legacy", "oldpass").unwrap().unwrap();
+        // 登录成功后透明升级为 PBKDF2 格式
+        let stored: String = c
+            .query_row(
+                "SELECT password_hash FROM users WHERE id = ?1",
+                params![u.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(stored.starts_with("pbkdf2$"));
+        // 新格式下旧密码仍可登录，错误密码被拒
+        assert!(verify_user(&c, "legacy", "oldpass").unwrap().is_some());
+        assert!(verify_user(&c, "legacy", "wrong").unwrap().is_none());
+    }
 
     #[test]
     fn multi_user_isolation() {
