@@ -1,0 +1,82 @@
+/*
+ * 任务卡片共享样式：普通清单（TaskListView）与回收站（TrashView）共用，
+ * 避免两套 UI 各自漂移。修改此处即两处同步生效。
+ */
+
+.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  border-radius: 8px;
+  background: rgb(var(--v-theme-surface));
+  transition: border-color 0.15s ease;
+}
+.task-item:hover {
+  border-color: rgba(var(--v-theme-primary), 0.6);
+}
+.task-item.done {
+  opacity: 0.6;
+}
+
+/* 卡片左端引导位：普通清单为原生 checkbox，回收站为状态图标 */
+.task-lead {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.task-main {
+  flex: 1;
+  min-width: 0;
+}
+.task-title {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.task-title.struck {
+  text-decoration: line-through;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+}
+.task-desc {
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 2px;
+}
+
+/* 信息 pill 行：截止时间 / 所属分组 / 删除时间等 */
+.task-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.task-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+.task-pill .mdi {
+  font-size: 13px;
+}
+.task-pill.overdue {
+  background: rgba(var(--v-theme-error), 0.12);
+  color: rgb(var(--v-theme-error));
+}
+
+.task-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  margin-left: auto;
+}
