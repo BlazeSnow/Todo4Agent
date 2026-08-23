@@ -1,36 +1,48 @@
 ﻿<#
 .SYNOPSIS
-  将 VERSION 文件中的版本号同步到 package.json、tauri.conf.json 与 src-tauri/Cargo.toml、Cargo.lock。
+  将 package.json 中的版本号同步到 tauri.conf.json 与 src-tauri/Cargo.toml、Cargo.lock；
+  将 MSI_VERSION 文件中的发布序列号同步到 tauri.conf.json 的 wix.version。
 
 .DESCRIPTION
-  版本号只需维护在仓库根目录的 VERSION 文件中（格式 X.Y.Z 或 X.Y.Z-beta.N，如 1.0.0、1.0.0-beta.2）。
+  版本号只需维护在仓库根目录的 package.json 中（version 与 msiVersion 字段）：
+    - version：软件版本（格式 X.Y.Z 或 X.Y.Z-beta.N，如 1.0.0、1.0.0-beta.2）
+    - msiVersion：Windows MSI 发布序列号（格式 X.Y.Z 数字三段，第 N 次发布为 0.0.N）
   本脚本会写入：
-    - package.json 的 version
     - tauri.conf.json 的 version（应用版本）
-    - tauri.conf.json 的 bundle.windows.wix.version（MSI 数字版本：
-      beta 序号映射到第 4 段，如 1.0.0-beta.1 -> 1.0.0.1；正式版为 1.0.0）
+    - tauri.conf.json 的 bundle.windows.wix.version（MSI 版本，取 msiVersion）
     - src-tauri/Cargo.toml 的 [package] version（Rust 后端版本）
     - src-tauri/Cargo.lock 中根包 todo4agent 的 version（保持锁文件一致）
+
+  msiVersion 独立于软件版本号的原因：MSI 版本比较只看前 3 段且不允许字母，
+  无法表达 beta 语义，用与发布次数绑定的独立序列号即可保证升级链路单调递增。
+  发布前 tag.ps1 会检查各版本文件与 package.json 的一致性。
   之后可运行 tag.ps1 按同一版本打 tag。
 
 .EXAMPLE
-  .\version.ps1        # 按 VERSION 文件同步五个版本位置
+  .\version.ps1        # 按 package.json 同步六个版本位置
 #>
 
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-$version = (Get-Content (Join-Path $RepoRoot 'VERSION') -Raw -Encoding UTF8).Trim()
+$package = Get-Content (Join-Path $RepoRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$version = $package.version
 if (-not $version) {
-    throw 'VERSION 文件中缺少版本号。'
+    throw 'package.json 中缺少 version 字段。'
 }
 if ($version -notmatch '^\d+\.\d+\.\d+(-beta\.\d+)?$') {
-    throw "VERSION 文件格式不正确：$version（应为 X.Y.Z 或 X.Y.Z-beta.N，例如 1.0.0、1.0.0-beta.2）"
+    throw "package.json 的 version 格式不正确：$version（应为 X.Y.Z 或 X.Y.Z-beta.N，例如 1.0.0、1.0.0-beta.2）"
 }
 
-# wix.version：MSI 数字版本，beta 序号映射到第 4 段
-$wixVersion = if ($version -match '^(.*)-beta\.(\d+)$') { "$($Matches[1]).$($Matches[2])" } else { $version }
+# MSI 发布序列号：独立于软件版本，第 N 次发布为 0.0.N
+$msiVersion = $package.msiVersion
+if (-not $msiVersion) {
+    throw 'package.json 中缺少 msiVersion 字段。'
+}
+if ($msiVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "package.json 的 msiVersion 格式不正确：$msiVersion（应为数字三段 X.Y.Z，例如 0.0.4）"
+}
 
 $nodeScript = @'
 const fs = require('fs');
@@ -43,7 +55,7 @@ t.version = ver;
 t.bundle.windows.wix.version = wix;
 fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(t, null, 2) + String.fromCharCode(10));
 '@
-node -e $nodeScript $version $wixVersion
+node -e $nodeScript $version $msiVersion
 if ($LASTEXITCODE -ne 0) { throw '同步版本到 package.json / tauri.conf.json 失败' }
 
 # Cargo.toml 的 [package] version 与 Cargo.lock 中根包 todo4agent 的 version。
@@ -68,4 +80,4 @@ foreach ($path in $cargoFiles) {
     [System.IO.File]::WriteAllText($path, $new, $utf8NoBom)
 }
 
-Write-Host "已同步 package.json / tauri.conf.json / Cargo.toml / Cargo.lock（version=$version，wix.version=$wixVersion）"
+Write-Host "已同步 package.json / tauri.conf.json / Cargo.toml / Cargo.lock（version=$version，wix.version=$msiVersion）"
