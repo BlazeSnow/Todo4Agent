@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 import GroupSidebar from './components/GroupSidebar.vue'
 import ContextMenu, { type ContextMenuItem } from './components/ContextMenu.vue'
@@ -170,8 +170,19 @@ async function refresh() {
 
 const authReady = computed(() => authState.value !== 'loading')
 
+/** 淡出并移除 index.html 的开屏动画（应用首屏已就绪） */
+function dismissSplash() {
+  const el = document.getElementById('splash')
+  if (!el) return
+  el.classList.add('splash-out')
+  window.setTimeout(() => el.remove(), 500)
+}
+
 onMounted(async () => {
   await initAuth()
+  // 首屏（登录页或主界面）渲染完成后淡出开屏，分组数据在其后继续加载
+  await nextTick()
+  dismissSplash()
   if (authState.value !== 'guest') {
     await loadGroups()
   }

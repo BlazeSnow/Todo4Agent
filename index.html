@@ -7,16 +7,103 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <title>Todo4Agent</title>
     <style>
-      /* 深色系统下挂载前的背景，避免白闪 */
+      /* 挂载前即随系统深浅色着色，避免白屏闪烁（与开屏背景一致） */
+      html {
+        background: #ffffff;
+      }
       @media (prefers-color-scheme: dark) {
         html {
           background: #121212;
         }
       }
+      body {
+        margin: 0;
+      }
+
+      /* 开屏动画：应用挂载完成前展示 logo + 加载指示，Vue 就绪后淡出 */
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #ffffff;
+        transition: opacity 0.4s ease;
+      }
+      #splash.splash-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #splash img {
+        width: 72px;
+        height: 72px;
+        animation: splash-breathe 1.6s ease-in-out infinite;
+      }
+      .splash-name {
+        font-size: 22px;
+        font-weight: 600;
+        color: #212121;
+        letter-spacing: 0.5px;
+      }
+      .splash-sub {
+        font-size: 13px;
+        color: rgba(0, 0, 0, 0.45);
+      }
+      .splash-spinner {
+        width: 26px;
+        height: 26px;
+        margin-top: 10px;
+        border-radius: 50%;
+        border: 3px solid rgba(0, 168, 98, 0.18);
+        border-top-color: #00a862;
+        animation: splash-spin 0.9s linear infinite;
+      }
+      @media (prefers-color-scheme: dark) {
+        #splash {
+          background: #121212;
+        }
+        .splash-name {
+          color: #eceff1;
+        }
+        .splash-sub {
+          color: rgba(255, 255, 255, 0.45);
+        }
+      }
+      @keyframes splash-breathe {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 0.85;
+        }
+        50% {
+          transform: scale(1.08);
+          opacity: 1;
+        }
+      }
+      @keyframes splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
     </style>
   </head>
   <body>
+    <div id="splash">
+      <img src="/favicon.ico" alt="Todo4Agent" />
+      <div class="splash-name">Todo4Agent</div>
+      <div class="splash-sub">为 Agent 设计的 MCP 任务清单</div>
+      <div class="splash-spinner"></div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
+    <script>
+      // 兜底：应用挂载异常时也最终淡出开屏，避免永久卡在启动画面
+      setTimeout(function () {
+        var s = document.getElementById('splash')
+        if (s) s.classList.add('splash-out')
+      }, 8000)
+    </script>
   </body>
 </html>

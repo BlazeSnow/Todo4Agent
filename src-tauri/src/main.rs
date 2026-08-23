@@ -163,7 +163,7 @@ fn run_desktop(port_override: Option<u16>) {
 
     tauri::Builder::default()
         .setup(move |app| {
-            tauri::WebviewWindowBuilder::new(
+            let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
                 tauri::WebviewUrl::External(url.parse().expect("非法窗口 URL")),
@@ -171,7 +171,16 @@ fn run_desktop(port_override: Option<u16>) {
             .title("Todo4Agent")
             .inner_size(1100.0, 720.0)
             .min_inner_size(800.0, 600.0)
+            // 先隐藏：待按系统深浅色设置好窗口/网页背景后再显示，
+            // 避免深色模式下网页首帧绘制前出现白屏闪烁
+            .visible(false)
             .build()?;
+            let bg = match window.theme() {
+                Ok(tauri::Theme::Dark) => tauri::utils::config::Color(0x12, 0x12, 0x12, 0xff),
+                _ => tauri::utils::config::Color(0xff, 0xff, 0xff, 0xff),
+            };
+            let _ = window.set_background_color(Some(bg));
+            let _ = window.show();
 
             // 系统托盘：关闭窗口后应用驻留后台，通过托盘菜单显示/退出
             let show_item = MenuItem::with_id(app, "show", "显示主界面", true, None::<&str>)?;
