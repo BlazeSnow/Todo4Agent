@@ -66,7 +66,7 @@ Todo4Agent/
 │   └── tauri.conf.json     # 打包配置（Windows 安装包中文化）
 ├── ci/                     # 发布辅助脚本（版本一致性检查、Linux 依赖）
 ├── run.ps1                 # 开发环境一键启动（编码处理 + 模式切换）
-├── version.ps1             # VERSION 文件同步 package.json / tauri.conf.json
+├── version.ps1             # 将 package.json 版本同步到 tauri.conf.json / Cargo.toml / Cargo.lock
 ├── tag.ps1                 # 按版本打 tag，触发 GitHub Actions 发布
 └── AGENTS.md / DEVELOPMENT.md
 ```
@@ -83,7 +83,7 @@ Todo4Agent/
 | `pnpm tauri build`                       | 打包当前平台安装包                                                           |
 | `cargo test`（src-tauri 下）             | 运行 Rust 单元测试                                                           |
 | `.\run.ps1 [-Web\|-Serve\|-Mcp\|-Build]` | 开发一键启动：默认桌面模式，参数切换模式，自动处理终端编码                   |
-| `.\version.ps1`                          | 将 VERSION 文件版本同步到 package.json 与 tauri.conf.json（含 MSI 数字版本） |
+| `.\version.ps1`                          | 将 package.json 版本同步到 tauri.conf.json 与 Cargo.toml / Cargo.lock（含 MSI 数字版本） |
 | `.\tag.ps1`                              | 按版本号打 tag 并推送，触发发布流水线（`-beta.N` 后缀为 prerelease）         |
 
 WebUI 与桌面端必须共享同一套功能与数据，禁止出现两套业务逻辑。后端 HTTP 服务固定监听
@@ -101,19 +101,22 @@ CREATE TABLE users (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   username         TEXT NOT NULL UNIQUE,
   salt             TEXT NOT NULL,
-  password_hash    TEXT NOT NULL,
+  password_hash    TEXT NOT NULL,  -- pbkdf2$<迭代>$<盐>$<哈希>（旧格式登录时透明升级）
   created_at       TEXT NOT NULL,
   default_password INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE groups (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  name       TEXT NOT NULL UNIQUE,
+  name       TEXT NOT NULL,        -- 唯一性见下方部分唯一索引（按用户、不含回收站）
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   deleted_at TEXT,          -- 非空表示已入回收站
-  user_id    INTEGER        -- 所属用户；首个用户创建时接管 NULL（本地模式遗留数据）
+  user_id    INTEGER        -- 所属用户；旧本地模式库由播种的 admin 接管 NULL 行
 );
+
+-- 分组名唯一性按用户生效，且不含回收站中的分组（软删除不占名）
+CREATE UNIQUE INDEX idx_groups_user_name ON groups(user_id, name) WHERE deleted_at IS NULL;
 
 CREATE TABLE tasks (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,8 +138,12 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
 说明：
 
 - 删除统一走软删除（`deleted_at`），回收站可恢复；清空回收站才物理删除。
-- 认证为用户名 + 盐 + SHA-256 哈希（`src/auth.rs`）；登录签发会话 token（`sessions`）。
-- 注册的首个用户自动接管本地模式遗留的无主数据（`groups.user_id IS NULL`）。
+  恢复分组遇同名冲突时自动顺延为「原名 (2)」。
+- 认证为用户名 + 盐 + PBKDF2-HMAC-SHA256 哈希（`src/auth.rs`，旧库单轮 SHA-256
+  格式在下次登录成功时透明升级）；登录签发会话 token（`sessions`），
+  修改密码后吊销该用户的其他会话。
+- 应用启动即播种初始用户 admin；admin 创建时接管旧本地模式库的无主数据
+  （`groups.user_id IS NULL`），已有用户的数据库不会重复播种默认分组。
 - 导出 JSON 的格式约定（与界面/MCP 导出同构）：
 
 ```json
@@ -158,14 +165,15 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
 
 软件以 MCP Server（stdio 传输）暴露任务清单能力，Agent 通过 MCP 客户端连接。工具：
 
-- `group_list` / `group_create` / `group_rename`
+- `app_version` / `app_release`：查询版本号 / 发布页地址
+- `group_list` / `group_create` / `group_rename` / `group_delete`（删除分组其下任务一并进回收站）
 - `task_list`（可按分组过滤）/ `task_create` / `task_update` / `task_complete` / `task_delete`
-- `task_export`（导出 JSON，与界面导出走同一实现）
+- `task_export`（导出 JSON，与界面导出走同一实现）/ `task_import`（导入 JSON，同名分组并入）
 
 认证与环境变量：
 
 - 通过 `TODO4AGENT_USERNAME` / `TODO4AGENT_PASSWORD` 指定真实用户凭据，启动时校验，
-  失败将以非零码退出（多用户模式必需）；本地模式（尚无用户）可省略。
+  缺失任一或校验失败将以非零码退出（凭据必填；首次运行数据库会自动创建初始账号 admin）。
 - 客户端配置示例（ZCode / Claude Desktop 通用格式）：
 
 ```json
@@ -190,9 +198,10 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
 
 - 流水线文件：`.github/workflows/release.yml`。
 - 触发方式：推送形如 `v1.2.3` 的 tag 时打包发布正式版；推送 `v1.2.3-beta.1` 时以 **prerelease** 发布 beta 版。
-- 版本号唯一来源为仓库根 `VERSION` 文件（`X.Y.Z[-beta.N]`）：`.\version.ps1` 同步到
-  package.json 与 tauri.conf.json（含 MSI 数字版本 `wix.version`，beta.N 映射为 `X.Y.Z.N`）；
-  流水线内 `ci/check-version.sh` 校验 tag 与各版本位置一致。
+- 版本号唯一来源为 package.json 的 `version`（`X.Y.Z[-beta.N]`）、`baseVersion`（tag 前缀，
+  如 `v1.0.0`）与 `msiVersion`（Windows MSI 发布序列号 `X.Y.N`，MSI 版本比较只看前三段且
+  不允许字母，故独立于软件版本单调递增）：`.\version.ps1` 将其同步到 tauri.conf.json、
+  Cargo.toml 与 Cargo.lock；流水线内 `ci/check-version.sh` 校验 tag 与各版本位置一致。
 - 矩阵构建 Windows / macOS / Linux 三平台产物；Linux 构建依赖见 `ci/linux-deps.sh`
   （含系统托盘所需的 libayatana-appindicator3-dev）。
 - Windows 安装包（MSI/NSIS）为中文界面（`wix.language: zh-CN`、`nsis.languages: SimpChinese`），
