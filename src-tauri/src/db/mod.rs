@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, Result as SqlResult};
+use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -104,7 +104,7 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
         PRAGMA foreign_keys = ON;
         CREATE TABLE IF NOT EXISTS groups (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT NOT NULL UNIQUE,
+            name       TEXT NOT NULL,
             sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             deleted_at TEXT,
@@ -145,6 +145,7 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
     ensure_deleted_columns(&conn)?;
     ensure_group_user_column(&conn)?;
     ensure_user_default_password_column(&conn)?;
+    ensure_group_name_scoped(&conn)?;
     seed_default_group(&conn)?;
     seed_default_admin(&conn)?;
     Ok(conn)
@@ -207,6 +208,47 @@ fn ensure_user_default_password_column(conn: &Connection) -> SqlResult<()> {
             [],
         )?;
     }
+    Ok(())
+}
+
+/// 分组名唯一性按用户生效且不含回收站中的分组（部分唯一索引）。
+/// 旧库的 name 列级 UNIQUE 是全局的（跨用户、含软删除），SQLite 无法
+/// 去除列级约束，需重建 groups 表；重建期间关闭外键检查以免触发级联删除。
+fn ensure_group_name_scoped(conn: &Connection) -> SqlResult<()> {
+    let table_sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'groups'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if table_sql.is_some_and(|sql| sql.contains("UNIQUE")) {
+        conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+        let rebuild = conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE groups_migrate (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                deleted_at TEXT,
+                user_id    INTEGER
+            );
+            INSERT INTO groups_migrate (id, name, sort_order, created_at, deleted_at, user_id)
+                SELECT id, name, sort_order, created_at, deleted_at, user_id FROM groups;
+            DROP TABLE groups;
+            ALTER TABLE groups_migrate RENAME TO groups;
+            COMMIT;
+            "#,
+        );
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        rebuild?;
+    }
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_user_name
+         ON groups(user_id, name) WHERE deleted_at IS NULL;",
+    )?;
     Ok(())
 }
 
@@ -338,5 +380,79 @@ mod tests {
         let groups = list_groups(&c, Some(admin)).unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].name, DEFAULT_GROUP);
+    }
+
+    #[test]
+    fn migrates_legacy_global_unique() {
+        let path = std::env::temp_dir().join(format!("todo4agent-migrate-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        // 构造旧版库：name 列级 UNIQUE（全局、含软删除）
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(
+                r#"
+                CREATE TABLE groups (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name       TEXT NOT NULL UNIQUE,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    deleted_at TEXT,
+                    user_id    INTEGER
+                );
+                CREATE TABLE tasks (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id    INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    title       TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    status      TEXT NOT NULL DEFAULT 'pending',
+                    due_at      TEXT,
+                    created_at  TEXT NOT NULL,
+                    updated_at  TEXT NOT NULL,
+                    sort_order  INTEGER NOT NULL DEFAULT 0,
+                    deleted_at  TEXT
+                );
+                INSERT INTO groups (id, name, created_at, user_id) VALUES
+                    (1, '旧组', '2026-01-01T00:00:00Z', 1),
+                    (2, '删除组', '2026-01-01T00:00:00Z', 1);
+                UPDATE groups SET deleted_at = '2026-01-02T00:00:00Z' WHERE id = 2;
+                INSERT INTO tasks (id, group_id, title, created_at, updated_at)
+                    VALUES (1, 1, '旧任务', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+                "#,
+            )
+            .unwrap();
+        }
+
+        // 重新打开触发迁移：表重建 + 部分唯一索引
+        let c = open(&path).unwrap();
+        let table_sql: String = c
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'groups'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!table_sql.contains("UNIQUE"));
+        let idx_count: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_groups_user_name'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(idx_count, 1);
+
+        // 数据完整保留
+        let task_count: i64 = c.query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0)).unwrap();
+        assert_eq!(task_count, 1);
+
+        // 回收站中的名字可以复用；其他用户可以用同名分组
+        let reused = create_group(&c, Some(1), "删除组").unwrap();
+        assert_ne!(reused.id, 2);
+        create_group(&c, Some(2), "旧组").unwrap();
+        // 同一用户的活动分组仍然不能重名
+        assert!(create_group(&c, Some(1), "删除组").is_err());
+
+        drop(c);
+        let _ = std::fs::remove_file(&path);
     }
 }

@@ -132,4 +132,23 @@ mod tests {
         // 默认分组（快速清单）在最前，其后依次为 丙、甲、乙
         assert_eq!(ids, vec![1, g3.id, g1.id, g2.id]);
     }
+
+    #[test]
+    fn group_name_scoped_per_user_and_trash() {
+        let (c, admin) = test_conn();
+        let other = create_user(&c, "bob", "pass1234").unwrap();
+
+        // 其他用户可以创建与 admin 同名的分组（唯一性按用户生效）
+        create_group(&c, Some(other.id), DEFAULT_GROUP).unwrap();
+
+        // 回收站中的分组不占用名字：删除后可再建同名分组
+        let g = create_group(&c, Some(admin), "项目").unwrap();
+        delete_group(&c, Some(admin), g.id).unwrap();
+        let g2 = create_group(&c, Some(admin), "项目").unwrap();
+        assert_ne!(g.id, g2.id);
+
+        // 同一用户的活动分组仍然不能重名
+        let dup = create_group(&c, Some(admin), "项目").unwrap_err();
+        assert!(is_unique_violation(&dup));
+    }
 }

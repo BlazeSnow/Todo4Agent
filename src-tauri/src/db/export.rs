@@ -47,7 +47,7 @@ pub fn import_doc(conn: &Connection, user_id: Option<i64>, doc: &ExportDoc) -> S
         tasks_skipped: 0,
     };
 
-    // 先收集现有分组名（含回收站中同名的也视为占用，避免 UNIQUE 冲突）
+    // 先收集现有分组名（当前用户未删除的分组；同名即并入）
     let groups = list_groups(conn, user_id)?;
     let mut name_map: std::collections::HashMap<String, i64> = groups
         .iter()
