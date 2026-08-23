@@ -1,8 +1,8 @@
 {
   "name": "Todo4Agent",
-  "version": "1.0.0-beta.5",
+  "version": "1.0.0-beta.6",
   "baseVersion": "v1.0.0",
-  "msiVersion": "1.0.5",
+  "msiVersion": "1.0.6",
   "description": "为Agent设计的MCP任务清单，附带UI界面。",
   "author": "BlazeSnow",
   "repository": {
