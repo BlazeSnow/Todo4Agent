@@ -8,7 +8,7 @@ const props = defineProps<{
   selectedId: number | null
   loading: boolean
   /** 当前主视图，用于侧边栏底部入口的选中高亮 */
-  activeView: 'tasks' | 'settings' | 'mcp' | 'trash'
+  activeView: 'tasks' | 'settings' | 'mcp' | 'prompt' | 'trash'
 }>()
 
 const emit = defineEmits<{
@@ -16,7 +16,9 @@ const emit = defineEmits<{
   (e: 'create'): void
   (e: 'rename', group: Group): void
   (e: 'delete', group: Group): void
+  (e: 'toggle-lock', group: Group): void
   (e: 'mcp'): void
+  (e: 'prompt'): void
   (e: 'settings'): void
   (e: 'trash'): void
   (e: 'reorder', groupIds: number[]): void
@@ -66,6 +68,11 @@ function openGroupCtx(group: Group, e: MouseEvent) {
       },
       { divider: true },
       { label: '重命名', icon: 'mdi-pencil', action: () => emit('rename', group) },
+      {
+        label: group.locked ? '解锁清单' : '锁定清单',
+        icon: group.locked ? 'mdi-lock-open' : 'mdi-lock',
+        action: () => emit('toggle-lock', group),
+      },
       { label: '删除', icon: 'mdi-delete', color: 'error', action: () => emit('delete', group) },
     ],
   }
@@ -85,7 +92,7 @@ function openGroupCtx(group: Group, e: MouseEvent) {
       @contextmenu.stop="openGroupCtx(group, $event)"
     >
       <template #prepend>
-        <v-icon icon="mdi-folder" />
+        <v-icon :icon="group.locked ? 'mdi-folder-lock' : 'mdi-folder'" />
       </template>
       <template #append>
         <v-menu location="bottom right" :close-on-content-click="true">
@@ -118,6 +125,12 @@ function openGroupCtx(group: Group, e: MouseEvent) {
               @click="$emit('rename', group)"
             />
             <v-list-item
+              :prepend-icon="group.locked ? 'mdi-lock-open' : 'mdi-lock'"
+              :title="group.locked ? '解锁清单' : '锁定清单'"
+              :subtitle="group.locked ? 'Agent 当前无法编辑' : '锁定后仅自己可编辑'"
+              @click="$emit('toggle-lock', group)"
+            />
+            <v-list-item
               prepend-icon="mdi-delete"
               title="删除"
               color="error"
@@ -146,6 +159,14 @@ function openGroupCtx(group: Group, e: MouseEvent) {
       subtitle="点击查看连接说明"
       :active="activeView === 'mcp'"
       @click="$emit('mcp')"
+    />
+
+    <v-list-item
+      prepend-icon="mdi-script-text-outline"
+      title="提示词"
+      subtitle="Agent 协作规范"
+      :active="activeView === 'prompt'"
+      @click="$emit('prompt')"
     />
 
     <v-list-item

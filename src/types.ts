@@ -6,6 +6,8 @@ export interface Group {
   created_at: string
   /** 回收站标记：非 null 表示已删除 */
   deleted_at: string | null
+  /** 清单锁定：锁定后 Agent 无法通过 MCP 编辑该清单，界面编辑不受影响 */
+  locked: boolean
 }
 
 /** 任务状态 */
@@ -48,6 +50,8 @@ export interface TaskUpdate {
 export interface ExportDoc {
   version: number
   exported_at: string
+  /** 用户提示词（Agent 协作规范）；未设置为 null，旧版文件无此字段 */
+  prompt?: string | null
   groups: {
     name: string
     tasks: {
@@ -69,6 +73,8 @@ export interface SettingsInfo {
   webui_lan: boolean
   /** 是否允许注册新账号 */
   allow_register: boolean
+  /** 数据库文件路径 */
+  db_path: string
 }
 
 /** 导入结果统计 */
@@ -77,12 +83,20 @@ export interface ImportResult {
   groups_merged: number
   tasks_imported: number
   tasks_skipped: number
+  /** 是否导入/更新了提示词（文档含 prompt 字段时） */
+  prompt_imported: boolean
+}
+
+/** Agent 提示词（协作规范，类似 AGENTS.md；默认为空） */
+export interface PromptInfo {
+  content: string
+  /** 是否为默认状态（未自定义 / 已清空） */
+  is_default: boolean
+  updated_at: string | null
 }
 
 /** 认证状态 */
 export interface AuthStatus {
-  /** local = 未创建用户（本地模式）；users = 多用户模式 */
-  mode: 'local' | 'users'
   user_id: number | null
   username: string | null
   /** 是否存在仍在使用初始默认密码的用户（登录页提示改密） */

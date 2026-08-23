@@ -1,6 +1,7 @@
 //! HTTP API（axum）与内嵌 WebUI 静态资源服务。
-//! 多用户模型：未创建用户时为“本地模式”（免登录）；创建首个用户后进入多用户模式，
-//! 所有数据按当前登录用户隔离，接口需要 Bearer token。静态资源始终可访问（登录页由前端渲染）。
+//! 多用户模型：数据按当前登录用户隔离，除登录/注册/状态外的 /api 接口
+//! 均需 Bearer token。静态资源始终可访问（登录页由前端渲染）。
+//! 应用启动即播种初始用户 admin，故不存在无用户的“本地模式”。
 
 use axum::{
     extract::{Request, State},
@@ -22,20 +23,17 @@ use std::{
 use tower::Service;
 
 use crate::db;
-use crate::auth as auth_crate;
 
 pub struct AppState {
     pub db: Mutex<Connection>,
     /// 实际监听的端口（供设置页展示）
     pub effective_port: u16,
-    /// 会话（token -> user_id）
-    pub sessions: auth_crate::Sessions,
 }
 pub type SharedState = Arc<AppState>;
 
-/// 中间件注入的当前用户（None = 本地模式）
+/// 中间件注入的当前登录用户（受保护接口必经认证，恒有值）
 #[derive(Clone, Copy, Debug)]
-pub struct CurrentUser(pub Option<i64>);
+pub struct CurrentUser(pub i64);
 
 type ApiResult = (StatusCode, Json<Value>);
 
@@ -66,10 +64,12 @@ pub(crate) fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 pub mod auth;
 pub mod groups;
 pub mod misc;
+pub mod prompt;
 
 pub use auth::*;
 pub use groups::*;
 pub use misc::*;
+pub use prompt::*;
 pub use tasks::*;
 pub use trash::*;
 pub mod tasks;
@@ -78,31 +78,22 @@ pub mod trash;
 async fn require_auth(State(st): State<SharedState>, mut req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
     let is_api = path.starts_with("/api");
+    // 静态资源与认证相关接口公开；其余 /api 接口需要有效 Bearer token
     let public =
         !is_api || matches!(path.as_str(), "/api/auth/status" | "/api/auth/login" | "/api/auth/register");
+    if public {
+        return next.run(req).await;
+    }
     let unauthorized =
         (StatusCode::UNAUTHORIZED, Json(json!({ "error": "未登录或登录已失效" }))).into_response();
-
-    // 多用户模式判定
-    let users_exist = {
+    // 会话直接查库：与桌面 / mcp 进程共享同一数据库，签发与吊销实时一致
+    let uid = bearer_token(req.headers()).and_then(|t| {
         let c = st.db.lock().unwrap();
-        db::user_count(&c).unwrap_or(0) > 0
-    };
-    if !users_exist {
-        // 本地模式：无登录要求
-        req.extensions_mut().insert(CurrentUser(None));
-        return next.run(req).await;
-    }
-
-    let uid = bearer_token(req.headers()).and_then(|t| st.sessions.user_id(t));
-    if public {
-        // 公开接口：带有效 token 则附带用户身份
-        req.extensions_mut().insert(CurrentUser(uid));
-        return next.run(req).await;
-    }
+        db::session_user_id(&c, t).ok().flatten()
+    });
     match uid {
         Some(uid) => {
-            req.extensions_mut().insert(CurrentUser(Some(uid)));
+            req.extensions_mut().insert(CurrentUser(uid));
             next.run(req).await
         }
         None => unauthorized,
@@ -115,7 +106,7 @@ fn api_router(state: SharedState) -> Router {
     Router::new()
         .route("/groups", get(list_groups).post(create_group))
         .route("/groups/reorder", post(reorder_groups))
-        .route("/groups/{id}", patch(rename_group).delete(delete_group))
+        .route("/groups/{id}", patch(update_group).delete(delete_group))
         .route("/groups/{id}/restore", post(restore_group))
         .route("/groups/{id}/purge", delete(purge_group))
         .route("/tasks", get(list_tasks).post(create_task))
@@ -127,6 +118,8 @@ fn api_router(state: SharedState) -> Router {
         .route("/export", get(export_json))
         .route("/import", post(import_json))
         .route("/settings", get(get_settings).patch(update_settings))
+        .route("/settings/db-location", post(open_db_location))
+        .route("/prompt", get(get_prompt).put(put_prompt))
         .route("/auth/status", get(auth_status))
         .route("/auth/login", post(auth_login))
         .route("/auth/register", post(auth_register))
@@ -197,12 +190,14 @@ pub async fn bind_tokio(preferred: u16, lan: bool) -> std::io::Result<(tokio::ne
     ))
 }
 
-/// 在当前线程阻塞运行 HTTP 服务（headless serve 模式）
-pub fn serve_blocking() {
+/// 在当前线程阻塞运行 HTTP 服务（headless serve 模式）。
+/// port_override：命令行 --port 指定的端口，本次运行优先于设置页保存的端口
+pub fn serve_blocking(port_override: Option<u16>) {
     let rt = tokio::runtime::Runtime::new().expect("创建 tokio runtime 失败");
     rt.block_on(async move {
         let conn = db::open(&db::db_path()).expect("打开数据库失败");
-        let preferred = db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT);
+        let preferred =
+            port_override.unwrap_or_else(|| db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT));
         let lan = db::get_webui_lan(&conn).unwrap_or(true);
         let (listener, port) = bind_tokio(preferred, lan).await.expect("绑定端口失败");
         if lan {
@@ -210,12 +205,9 @@ pub fn serve_blocking() {
         } else {
             println!("Todo4Agent WebUI: http://127.0.0.1:{port} （仅本机可访问）");
         }
-        let sessions = auth_crate::Sessions::default();
-        sessions.load_from_db(&conn);
         let state = Arc::new(AppState {
             db: Mutex::new(conn),
             effective_port: port,
-            sessions,
         });
         if let Err(e) = axum::serve(listener, app(state)).await {
             eprintln!("HTTP 服务错误: {e}");
@@ -223,14 +215,16 @@ pub fn serve_blocking() {
     });
 }
 
-/// 在后台线程运行 HTTP 服务，返回实际端口（tauri 桌面模式使用）
-pub fn spawn_server() -> u16 {
+/// 在后台线程运行 HTTP 服务，返回实际端口（tauri 桌面模式使用）。
+/// port_override：命令行 --port 指定的端口，本次运行优先于设置页保存的端口
+pub fn spawn_server(port_override: Option<u16>) -> u16 {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("创建 tokio runtime 失败");
         rt.block_on(async move {
             let conn = db::open(&db::db_path()).expect("打开数据库失败");
-            let preferred = db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT);
+            let preferred =
+                port_override.unwrap_or_else(|| db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT));
             let lan = db::get_webui_lan(&conn).unwrap_or(true);
             let (listener, port) = bind_tokio(preferred, lan).await.expect("绑定端口失败");
             if lan {
@@ -239,12 +233,9 @@ pub fn spawn_server() -> u16 {
                 println!("Todo4Agent WebUI: http://127.0.0.1:{port} （仅本机可访问）");
             }
             let _ = tx.send(port);
-            let sessions = auth_crate::Sessions::default();
-            sessions.load_from_db(&conn);
             let state = Arc::new(AppState {
                 db: Mutex::new(conn),
                 effective_port: port,
-                sessions,
             });
             if let Err(e) = axum::serve(listener, app(state)).await {
                 eprintln!("HTTP 服务错误: {e}");

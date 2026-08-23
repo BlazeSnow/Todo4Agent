@@ -44,7 +44,7 @@ pub(super) fn tool_error(id: &Value, text: String) {
     );
 }
 
-fn handle(msg: &Value, conn: &Connection, user_id: Option<i64>) {
+fn handle(msg: &Value, conn: &Connection, user_id: i64) {
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
     let method = msg
         .get("method")
@@ -101,29 +101,23 @@ fn handle(msg: &Value, conn: &Connection, user_id: Option<i64>) {
     }
 }
 
-/// 解析 MCP 身份：
-/// - 提供 TODO4AGENT_USERNAME / TODO4AGENT_PASSWORD 环境变量时校验凭据并绑定该用户；
-/// - 未提供凭据时：本地模式（尚无用户）可用，多用户模式拒绝启动。
+/// 解析并校验 MCP 身份：TODO4AGENT_USERNAME / TODO4AGENT_PASSWORD 环境变量
+/// 指定真实用户凭据，缺失任一或校验失败均报错（应用启动即播种初始 admin 用户）
 fn resolve_mcp_user(
     conn: &Connection,
     username: Option<&str>,
     password: Option<&str>,
-) -> Result<Option<i64>, String> {
-    let users_exist = db::user_count(conn).unwrap_or(0) > 0;
+) -> Result<i64, String> {
     match (username, password) {
         (Some(u), Some(p)) => match db::verify_user(conn, u, p) {
-            Ok(Some(user)) => Ok(Some(user.id)),
+            Ok(Some(user)) => Ok(user.id),
             Ok(None) => Err(format!("用户名或密码错误：{u}")),
             Err(e) => Err(format!("验证用户失败：{e}")),
         },
-        _ => {
-            if users_exist {
-                Err("多用户模式下 MCP 需要设置 TODO4AGENT_USERNAME 与 TODO4AGENT_PASSWORD 环境变量".to_string())
-            } else {
-                // 本地模式：无用户数据空间
-                Ok(None)
-            }
-        }
+        _ => Err(
+            "MCP 需要设置 TODO4AGENT_USERNAME 与 TODO4AGENT_PASSWORD 环境变量（运行 todo4agent help 查看接入说明）"
+                .to_string(),
+        ),
     }
 }
 
@@ -186,8 +180,8 @@ mod tests {
         let c = test_conn();
         // 初始 admin 用户自动创建，默认密码可登录
         let uid = resolve_mcp_user(&c, Some("admin"), Some("admin123")).unwrap();
-        assert!(uid.is_some());
-        // 总有用户：缺凭据拒绝
+        assert!(uid > 0);
+        // 缺任一凭据拒绝
         assert!(resolve_mcp_user(&c, None, None).is_err());
         assert!(resolve_mcp_user(&c, Some("x"), None).is_err());
         // 错误密码
@@ -199,7 +193,7 @@ mod tests {
         let c = test_conn();
         db::create_user(&c, "alice", "pass1234").unwrap();
         let uid = resolve_mcp_user(&c, Some("alice"), Some("pass1234")).unwrap();
-        assert!(uid.is_some());
+        assert!(uid > 0);
         assert!(resolve_mcp_user(&c, Some("alice"), Some("wrong")).is_err());
         assert!(resolve_mcp_user(&c, Some("nobody"), Some("pass1234")).is_err());
         assert!(resolve_mcp_user(&c, None, None).is_err());

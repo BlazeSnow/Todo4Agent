@@ -153,7 +153,7 @@ function overdue(task: Task): boolean {
           <v-list density="compact">
             <v-list-item
               v-for="opt in sortOptions"
-              :key="opt.value"
+              :key="opt.value ?? 'default'"
               :title="opt.label"
               :active="sortMode === opt.value"
               @click="toggleSort(opt.value)"
@@ -170,11 +170,11 @@ function overdue(task: Task): boolean {
 
     <div v-if="loading" class="list-loading" />
 
-    <!-- 任务卡片（原生结构，便于后续界面优化） -->
+    <!-- 任务卡片（原生结构，样式与回收站共享，见 styles/task-card.css） -->
     <div class="task-item" v-for="task in displayedTasks" :key="task.id" @contextmenu.stop="openTaskCtx(task, $event)">
       <input
         type="checkbox"
-        class="task-check"
+        class="task-check task-lead"
         :checked="task.status === 'done'"
         :aria-label="`完成：${task.title}`"
         @change="$emit('toggle', task)"
@@ -184,9 +184,11 @@ function overdue(task: Task): boolean {
           {{ task.title }}
         </div>
         <div v-if="task.description" class="task-desc">{{ task.description }}</div>
-        <div v-if="task.due_at" class="task-due" :class="{ overdue: overdue(task) }">
-          <i class="mdi mdi-calendar"></i>
-          {{ formatDue(task.due_at) }}
+        <div v-if="task.due_at" class="task-pills">
+          <span class="task-pill" :class="{ overdue: overdue(task) }">
+            <i class="mdi mdi-calendar"></i>
+            {{ formatDue(task.due_at) }}
+          </span>
         </div>
       </div>
       <div class="task-actions">
@@ -249,6 +251,8 @@ function overdue(task: Task): boolean {
   </div>
 </template>
 
+<style src="../styles/task-card.css"></style>
+
 <style scoped>
 .list-header {
   display: flex;
@@ -299,78 +303,11 @@ function overdue(task: Task): boolean {
   }
 }
 
-.task-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 16px;
-  margin-bottom: 8px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
-  border-radius: 8px;
-  background: rgb(var(--v-theme-surface));
-  transition: border-color 0.15s ease;
-}
-.task-item:hover {
-  border-color: rgba(var(--v-theme-primary), 0.6);
-}
-.task-item.done {
-  opacity: 0.6;
-}
-
 .task-check {
-  flex-shrink: 0;
   width: 18px;
   height: 18px;
-  margin-top: 3px;
   cursor: pointer;
   accent-color: #00a862;
-}
-
-.task-main {
-  flex: 1;
-  min-width: 0;
-}
-.task-title {
-  font-size: 15px;
-  font-weight: 500;
-  line-height: 1.5;
-  word-break: break-word;
-}
-.task-title.struck {
-  text-decoration: line-through;
-  color: rgba(var(--v-theme-on-surface), 0.45);
-}
-.task-desc {
-  font-size: 13px;
-  color: rgba(var(--v-theme-on-surface), 0.6);
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin-top: 2px;
-}
-.task-due {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 6px;
-  padding: 2px 10px;
-  font-size: 12px;
-  border-radius: 999px;
-  background: rgba(var(--v-theme-on-surface), 0.08);
-  color: rgba(var(--v-theme-on-surface), 0.7);
-}
-.task-due .mdi {
-  font-size: 13px;
-}
-.task-due.overdue {
-  background: rgba(var(--v-theme-error), 0.12);
-  color: rgb(var(--v-theme-error));
-}
-
-.task-actions {
-  display: flex;
-  flex-shrink: 0;
-  gap: 2px;
-  margin-left: auto;
 }
 
 .empty-state {

@@ -4,19 +4,19 @@ use super::*;
 
 pub fn list_tasks(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: i64,
     group_id: Option<i64>,
 ) -> SqlResult<Vec<Task>> {
     // 默认按手动排序序号，再按 id（创建先后）稳定排序；不含已删除任务；仅本用户分组下的任务
     let sql = match group_id {
         Some(_) => format!(
             "SELECT {TASK_COLS} FROM tasks WHERE group_id = ?1 AND deleted_at IS NULL
-             AND group_id IN (SELECT id FROM groups WHERE user_id IS ?2)
+             AND group_id IN (SELECT id FROM groups WHERE user_id = ?2)
              ORDER BY sort_order, id"
         ),
         None => format!(
             "SELECT {TASK_COLS} FROM tasks WHERE deleted_at IS NULL
-             AND group_id IN (SELECT id FROM groups WHERE user_id IS ?1)
+             AND group_id IN (SELECT id FROM groups WHERE user_id = ?1)
              ORDER BY sort_order, id"
         ),
     };
@@ -30,7 +30,7 @@ pub fn list_tasks(
 
 pub fn create_task(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: i64,
     group_id: i64,
     title: &str,
     description: &str,
@@ -64,7 +64,7 @@ pub fn create_task(
 /// 调用方需持锁独占访问（如 api 层 Mutex<Connection>），故使用 unchecked_transaction
 pub fn reorder_tasks(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: i64,
     group_id: i64,
     task_ids: &[i64],
 ) -> SqlResult<()> {
@@ -86,7 +86,7 @@ pub fn reorder_tasks(
 /// 局部更新任务；任务不存在、不属于该用户返回 Ok(None)
 pub fn update_task(
     conn: &Connection,
-    user_id: Option<i64>,
+    user_id: i64,
     id: i64,
     patch: &TaskUpdate,
 ) -> SqlResult<Option<Task>> {
@@ -129,7 +129,7 @@ pub fn update_task(
     // 先按 id 更新并检查归属：归属检查通过子查询
     let user_ok = conn.query_row(
         "SELECT 1 FROM tasks WHERE id = ?1 AND deleted_at IS NULL
-         AND group_id IN (SELECT id FROM groups WHERE user_id IS ?2)",
+         AND group_id IN (SELECT id FROM groups WHERE user_id = ?2)",
         params![id, user_id],
         |_| Ok(()),
     ).optional()?.is_some();
@@ -144,13 +144,30 @@ pub fn update_task(
 }
 
 /// 软删除任务（进入回收站）；不存在、已删除或不属于该用户返回 Ok(false)
-pub fn delete_task(conn: &Connection, user_id: Option<i64>, id: i64) -> SqlResult<bool> {
+pub fn delete_task(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> {
     let n = conn.execute(
         "UPDATE tasks SET deleted_at = ?1, updated_at = ?1 WHERE id = ?2 AND deleted_at IS NULL
-         AND group_id IN (SELECT id FROM groups WHERE user_id IS ?3)",
+         AND group_id IN (SELECT id FROM groups WHERE user_id = ?3)",
         params![now(), id, user_id],
     )?;
     Ok(n > 0)
+}
+
+/// 任务所属分组的锁定信息：返回 (group_id, 分组名, 是否锁定)；
+/// 任务不存在、已删除或不属于该用户返回 Ok(None)（清单锁定的 MCP 拦截用）
+pub fn task_group_lock(
+    conn: &Connection,
+    user_id: i64,
+    task_id: i64,
+) -> SqlResult<Option<(i64, String, bool)>> {
+    conn.query_row(
+        "SELECT g.id, g.name, g.locked FROM tasks t
+         JOIN groups g ON g.id = t.group_id
+         WHERE t.id = ?1 AND t.deleted_at IS NULL AND g.user_id = ?2",
+        params![task_id, user_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .optional()
 }
 
 // ---------- 回收站 ----------
@@ -165,14 +182,14 @@ mod tests {
     #[test]
     fn task_crud() {
         let (c, admin) = test_conn();
-        let gid = list_groups(&c, Some(admin)).unwrap()[0].id;
-        let t = create_task(&c, Some(admin), gid, "写文档", "详细说明", Some("2026-09-01T00:00:00Z")).unwrap();
+        let gid = list_groups(&c, admin).unwrap()[0].id;
+        let t = create_task(&c, admin, gid, "写文档", "详细说明", Some("2026-09-01T00:00:00Z")).unwrap();
         assert_eq!(t.status, "pending");
-        assert_eq!(list_tasks(&c, Some(admin), Some(gid)).unwrap().len(), 1);
+        assert_eq!(list_tasks(&c, admin, Some(gid)).unwrap().len(), 1);
 
         let t2 = update_task(
             &c,
-            Some(admin),
+            admin,
             t.id,
             &TaskUpdate {
                 title: Some("改标题".into()),
@@ -187,7 +204,7 @@ mod tests {
 
         let cleared = update_task(
             &c,
-            Some(admin),
+            admin,
             t.id,
             &TaskUpdate {
                 due_at: Some(None),
@@ -198,22 +215,22 @@ mod tests {
         .unwrap();
         assert!(cleared.due_at.is_none());
 
-        assert!(update_task(&c, Some(admin), 999, &TaskUpdate::default()).unwrap().is_none());
-        assert!(delete_task(&c, Some(admin), t.id).unwrap());
-        assert!(!delete_task(&c, Some(admin), t.id).unwrap());
+        assert!(update_task(&c, admin, 999, &TaskUpdate::default()).unwrap().is_none());
+        assert!(delete_task(&c, admin, t.id).unwrap());
+        assert!(!delete_task(&c, admin, t.id).unwrap());
     }
 
     #[test]
     fn reorder_tasks_order() {
         let (c, admin) = test_conn();
-        let gid = list_groups(&c, Some(admin)).unwrap()[0].id;
-        let t1 = create_task(&c, Some(admin), gid, "A", "", None).unwrap();
-        let t2 = create_task(&c, Some(admin), gid, "B", "", None).unwrap();
-        let t3 = create_task(&c, Some(admin), gid, "C", "", None).unwrap();
-        assert_eq!(list_tasks(&c, Some(admin), Some(gid)).unwrap().len(), 3);
+        let gid = list_groups(&c, admin).unwrap()[0].id;
+        let t1 = create_task(&c, admin, gid, "A", "", None).unwrap();
+        let t2 = create_task(&c, admin, gid, "B", "", None).unwrap();
+        let t3 = create_task(&c, admin, gid, "C", "", None).unwrap();
+        assert_eq!(list_tasks(&c, admin, Some(gid)).unwrap().len(), 3);
 
-        reorder_tasks(&c, Some(admin), gid, &[t3.id, t1.id, t2.id]).unwrap();
-        let ids: Vec<i64> = list_tasks(&c, Some(admin), Some(gid))
+        reorder_tasks(&c, admin, gid, &[t3.id, t1.id, t2.id]).unwrap();
+        let ids: Vec<i64> = list_tasks(&c, admin, Some(gid))
             .unwrap()
             .iter()
             .map(|t| t.id)
@@ -221,8 +238,8 @@ mod tests {
         assert_eq!(ids, vec![t3.id, t1.id, t2.id]);
 
         // 不影响其他分组
-        reorder_tasks(&c, Some(admin), gid, &[t2.id, t3.id, t1.id]).unwrap();
-        let ids: Vec<i64> = list_tasks(&c, Some(admin), Some(gid))
+        reorder_tasks(&c, admin, gid, &[t2.id, t3.id, t1.id]).unwrap();
+        let ids: Vec<i64> = list_tasks(&c, admin, Some(gid))
             .unwrap()
             .iter()
             .map(|t| t.id)

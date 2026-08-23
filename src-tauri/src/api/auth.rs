@@ -10,24 +10,20 @@ use crate::db;
 
 // ---------- 认证 ----------
 
-pub async fn auth_status(
-    State(st): State<SharedState>,
-    Extension(cur): Extension<CurrentUser>,
-) -> ApiResult {
+/// 认证状态（公开接口）：按请求头 token 判定当前会话
+pub async fn auth_status(State(st): State<SharedState>, headers: HeaderMap) -> ApiResult {
     let c = st.db.lock().unwrap();
-    let users_exist = db::user_count(&c).unwrap_or(0) > 0;
     let has_default_password = db::has_default_password_user(&c).unwrap_or(false);
     let allow_register = db::get_allow_register(&c).unwrap_or(true);
-    let username = match cur.0 {
-        Some(uid) => db::list_users(&c)
+    let uid = bearer_token(&headers).and_then(|t| db::session_user_id(&c, t).ok().flatten());
+    let username = uid.and_then(|uid| {
+        db::list_users(&c)
             .ok()
             .and_then(|us| us.into_iter().find(|u| u.id == uid))
-            .map(|u| u.username),
-        None => None,
-    };
+            .map(|u| u.username)
+    });
     ok_json(json!({
-        "mode": if users_exist { "users" } else { "local" },
-        "user_id": cur.0,
+        "user_id": uid,
         "username": username,
         "default_password": has_default_password,
         "allow_register": allow_register
@@ -46,20 +42,20 @@ pub async fn auth_login(
 ) -> ApiResult {
     let c = st.db.lock().unwrap();
     match db::verify_user(&c, &body.username, &body.password) {
-        Ok(Some(user)) => {
-            let token = st.sessions.issue(&c, user.id);
-            ok_json(json!({
+        Ok(Some(user)) => match db::issue_session(&c, user.id) {
+            Ok(token) => ok_json(json!({
                 "token": token,
                 "user_id": user.id,
                 "username": user.username
-            }))
-        }
+            })),
+            Err(e) => internal(e),
+        },
         Ok(None) => err(StatusCode::UNAUTHORIZED, "用户名或密码错误"),
         Err(e) => internal(e),
     }
 }
 
-/// 注册新用户；首个用户自动接管本地模式遗留数据，后续用户拥有独立数据空间
+/// 注册新用户；新用户拥有独立数据空间
 pub async fn auth_register(
     State(st): State<SharedState>,
     Json(body): Json<AuthLoginInput>,
@@ -76,14 +72,14 @@ pub async fn auth_register(
         return err(StatusCode::FORBIDDEN, "注册已关闭");
     }
     match db::create_user(&c, username, &body.password) {
-        Ok(user) => {
-            let token = st.sessions.issue(&c, user.id);
-            ok_json(json!({
+        Ok(user) => match db::issue_session(&c, user.id) {
+            Ok(token) => ok_json(json!({
                 "token": token,
                 "user_id": user.id,
                 "username": user.username
-            }))
-        }
+            })),
+            Err(e) => internal(e),
+        },
         Err(e) if db::is_unique_violation(&e) => err(StatusCode::CONFLICT, "用户名已存在"),
         Err(e) => internal(e),
     }
@@ -93,7 +89,7 @@ pub async fn auth_register(
 pub async fn auth_logout(State(st): State<SharedState>, headers: HeaderMap) -> ApiResult {
     if let Some(t) = bearer_token(&headers) {
         let c = st.db.lock().unwrap();
-        st.sessions.revoke(&c, t);
+        let _ = db::delete_session(&c, t);
     }
     ok_json(json!({ "ok": true }))
 }
@@ -104,21 +100,24 @@ pub struct PasswordInput {
     new_password: String,
 }
 
-/// 修改当前用户密码
+/// 修改当前用户密码；成功后吊销该用户的其他会话（当前登录保留）
 pub async fn auth_password(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
+    headers: HeaderMap,
     Json(body): Json<PasswordInput>,
 ) -> ApiResult {
-    let Some(uid) = cur.0 else {
-        return err(StatusCode::UNAUTHORIZED, "未登录");
-    };
+    let uid = cur.0;
     if body.new_password.len() < 4 {
         return err(StatusCode::BAD_REQUEST, "新密码至少 4 位");
     }
     let c = st.db.lock().unwrap();
     match db::change_user_password(&c, uid, &body.old_password, &body.new_password) {
-        Ok(true) => ok_json(json!({ "ok": true })),
+        Ok(true) => {
+            let keep = bearer_token(&headers).map(String::from);
+            let _ = db::delete_user_sessions(&c, uid, keep.as_deref());
+            ok_json(json!({ "ok": true }))
+        }
         Ok(false) => err(StatusCode::BAD_REQUEST, "原密码错误"),
         Err(e) => internal(e),
     }

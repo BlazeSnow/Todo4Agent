@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, Result as SqlResult};
+use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -24,6 +24,8 @@ pub struct Group {
     pub created_at: String,
     /// 回收站标记：非 null 表示已删除（软删除）
     pub deleted_at: Option<String>,
+    /// 清单锁定：锁定后 Agent 无法通过 MCP 编辑该清单（界面编辑不受影响）
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +49,9 @@ pub struct Task {
 pub struct ExportDoc {
     pub version: u32,
     pub exported_at: String,
+    /// 用户提示词（Agent 协作规范）；未设置为 null，旧版导出文件无此字段
+    #[serde(default)]
+    pub prompt: Option<String>,
     pub groups: Vec<ExportGroup>,
 }
 
@@ -82,7 +87,7 @@ fn now() -> String {
 
 // ---------- 设置 ----------
 
-/// WebUI/API 端口设置键，默认 3000
+/// 数据库文件位置：环境变量 TODO4AGENT_DB 优先，否则平台数据目录 Todo4Agent/todo.db
 pub fn db_path() -> PathBuf {
     if let Ok(p) = std::env::var("TODO4AGENT_DB") {
         return PathBuf::from(p);
@@ -91,7 +96,7 @@ pub fn db_path() -> PathBuf {
     dir.join("Todo4Agent").join("todo.db")
 }
 
-/// 打开数据库：建表并播种默认分组「快速清单」
+/// 打开数据库：建表、执行迁移，并播种初始用户 admin 与默认分组「快速清单」
 pub fn open(path: &Path) -> SqlResult<Connection> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -104,11 +109,12 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
         PRAGMA foreign_keys = ON;
         CREATE TABLE IF NOT EXISTS groups (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT NOT NULL UNIQUE,
+            name       TEXT NOT NULL,
             sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             deleted_at TEXT,
-            user_id    INTEGER
+            user_id    INTEGER,
+            locked     INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS users (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,13 +145,19 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
             token   TEXT PRIMARY KEY,
             user_id INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS prompts (
+            user_id    INTEGER PRIMARY KEY,
+            content    TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         "#,
     )?;
     ensure_task_sort_column(&conn)?;
     ensure_deleted_columns(&conn)?;
     ensure_group_user_column(&conn)?;
     ensure_user_default_password_column(&conn)?;
-    seed_default_group(&conn)?;
+    ensure_group_locked_column(&conn)?;
+    ensure_group_name_scoped(&conn)?;
     seed_default_admin(&conn)?;
     Ok(conn)
 }
@@ -195,6 +207,21 @@ fn ensure_group_user_column(conn: &Connection) -> SqlResult<()> {
     }
     Ok(())
 }
+
+/// 为旧数据库迁移 groups.locked 列（清单锁定：锁定后 Agent 无法编辑该清单）
+fn ensure_group_locked_column(conn: &Connection) -> SqlResult<()> {
+    let has: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('groups') WHERE name = 'locked'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|n| n > 0)?;
+    if !has {
+        conn.execute(
+            "ALTER TABLE groups ADD COLUMN locked INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    Ok(())
+}
 /// 为旧数据库迁移 users.default_password 列（初始密码标记）
 fn ensure_user_default_password_column(conn: &Connection) -> SqlResult<()> {
     let has: bool = conn
@@ -210,7 +237,51 @@ fn ensure_user_default_password_column(conn: &Connection) -> SqlResult<()> {
     Ok(())
 }
 
-/// 初始化时播种初始用户 admin（仅当尚无任何用户；同时接管无主数据）
+/// 分组名唯一性按用户生效且不含回收站中的分组（部分唯一索引）。
+/// 旧库的 name 列级 UNIQUE 是全局的（跨用户、含软删除），SQLite 无法
+/// 去除列级约束，需重建 groups 表；重建期间关闭外键检查以免触发级联删除。
+fn ensure_group_name_scoped(conn: &Connection) -> SqlResult<()> {
+    let table_sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'groups'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if table_sql.is_some_and(|sql| sql.contains("UNIQUE")) {
+        conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+        let rebuild = conn.execute_batch(
+            r#"
+            BEGIN;
+            CREATE TABLE groups_migrate (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                deleted_at TEXT,
+                user_id    INTEGER,
+                locked     INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO groups_migrate (id, name, sort_order, created_at, deleted_at, user_id, locked)
+                SELECT id, name, sort_order, created_at, deleted_at, user_id, locked FROM groups;
+            DROP TABLE groups;
+            ALTER TABLE groups_migrate RENAME TO groups;
+            COMMIT;
+            "#,
+        );
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        rebuild?;
+    }
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_user_name
+         ON groups(user_id, name) WHERE deleted_at IS NULL;",
+    )?;
+    Ok(())
+}
+
+/// 初始化时播种初始用户 admin（仅当尚无任何用户）。admin 创建时接管
+/// 本地模式遗留的无主数据；若接管后仍无任何分组，播种默认分组「快速清单」。
+/// 已有用户的数据库不会重复播种（用户彻底删除默认分组后不会再现）。
 fn seed_default_admin(conn: &Connection) -> SqlResult<()> {
     if user_count(conn)? == 0 {
         let user = create_user(conn, DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD)?;
@@ -218,6 +289,9 @@ fn seed_default_admin(conn: &Connection) -> SqlResult<()> {
             "UPDATE users SET default_password = 1 WHERE id = ?1",
             params![user.id],
         )?;
+        if list_groups(conn, user.id)?.is_empty() {
+            create_group(conn, user.id, DEFAULT_GROUP)?;
+        }
     }
     Ok(())
 }
@@ -232,45 +306,17 @@ pub fn has_default_password_user(conn: &Connection) -> SqlResult<bool> {
     .map(|n| n > 0)
 }
 // ---------- 会话持久化 ----------
-
-pub fn load_sessions(conn: &Connection) -> SqlResult<Vec<(String, i64)>> {
-    let mut stmt = conn.prepare("SELECT token, user_id FROM sessions")?;
-    let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
-    rows.collect()
-}
-
-pub fn save_session(conn: &Connection, token: &str, user_id: i64) -> SqlResult<()> {
-    conn.execute(
-        "INSERT INTO sessions (token, user_id) VALUES (?1, ?2)
-         ON CONFLICT(token) DO UPDATE SET user_id = excluded.user_id",
-        params![token, user_id],
-    )?;
-    Ok(())
-}
-
-pub fn delete_session(conn: &Connection, token: &str) -> SqlResult<()> {
-    conn.execute("DELETE FROM sessions WHERE token = ?1", params![token])?;
-    Ok(())
-}
-
+// 签发 / 校验 / 吊销见 db::sessions（直接落库，多进程共享数据库时实时一致）
 
 // ---------- 用户 ----------
 
-fn seed_default_group(conn: &Connection) -> SqlResult<()> {
-    conn.execute(
-        "INSERT INTO groups (name, sort_order, created_at, user_id)
-         SELECT ?1, 0, ?2, NULL
-         WHERE NOT EXISTS (SELECT 1 FROM groups WHERE name = ?1)",
-        params![DEFAULT_GROUP, now()],
-    )?;
-    Ok(())
-}
-
-/// 是否为 UNIQUE 约束冲突（分组重名）
+/// 是否为 UNIQUE 约束冲突（分组/用户重名）。按 SQLite 扩展错误码精确判定，
+/// 不与其他 ConstraintViolation（外键、CHECK 等）混淆
 pub fn is_unique_violation(e: &rusqlite::Error) -> bool {
     matches!(
         e,
-        rusqlite::Error::SqliteFailure(ref f, _) if f.code == rusqlite::ErrorCode::ConstraintViolation
+        rusqlite::Error::SqliteFailure(ref f, _)
+            if f.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
     )
 }
 
@@ -281,6 +327,7 @@ fn group_from_row(row: &rusqlite::Row<'_>) -> SqlResult<Group> {
         sort_order: row.get(2)?,
         created_at: row.get(3)?,
         deleted_at: row.get(4)?,
+        locked: row.get(5)?,
     })
 }
 
@@ -300,7 +347,7 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> SqlResult<Task> {
 }
 
 /// 分组查询的列顺序必须与 group_from_row 一致
-const GROUP_COLS: &str = "id, name, sort_order, created_at, deleted_at";
+const GROUP_COLS: &str = "id, name, sort_order, created_at, deleted_at, locked";
 /// 任务查询的列顺序必须与 task_from_row 一致
 const TASK_COLS: &str =
     "id, group_id, title, description, status, due_at, created_at, updated_at, sort_order, deleted_at";
@@ -308,6 +355,7 @@ const TASK_COLS: &str =
 
 pub mod export;
 pub mod groups;
+pub mod prompts;
 pub mod sessions;
 pub mod settings;
 pub mod tasks;
@@ -316,6 +364,8 @@ pub mod users;
 
 pub use export::*;
 pub use groups::*;
+pub use prompts::*;
+pub use sessions::*;
 pub use settings::*;
 pub use tasks::*;
 pub use trash::*;
@@ -335,8 +385,137 @@ mod tests {
     #[test]
     fn seeds_default_group() {
         let (c, admin) = test_conn();
-        let groups = list_groups(&c, Some(admin)).unwrap();
+        let groups = list_groups(&c, admin).unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].name, DEFAULT_GROUP);
+    }
+
+    #[test]
+    fn existing_db_does_not_reseed_default_group() {
+        let path = std::env::temp_dir().join(format!("todo4agent-reseed-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        // 首次打开播种 admin 与默认分组；用户彻底删除默认分组
+        {
+            let c = open(&path).unwrap();
+            let admin = list_users(&c).unwrap()[0].id;
+            let gid = list_groups(&c, admin).unwrap()[0].id;
+            purge_group(&c, admin, gid).unwrap();
+        }
+        // 重新打开：不再播种默认分组，也不产生无主分组
+        let c = open(&path).unwrap();
+        let admin = list_users(&c).unwrap()[0].id;
+        assert!(list_groups(&c, admin).unwrap().is_empty());
+        let orphans: i64 = c
+            .query_row("SELECT COUNT(*) FROM groups WHERE user_id IS NULL", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(orphans, 0);
+        drop(c);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn legacy_local_db_admin_takes_over() {
+        let path = std::env::temp_dir().join(format!("todo4agent-legacy-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        // 构造旧本地模式库：有无主分组（user_id NULL）、没有任何用户
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(
+                r#"
+                CREATE TABLE groups (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name       TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    deleted_at TEXT,
+                    user_id    INTEGER
+                );
+                INSERT INTO groups (name, created_at) VALUES ('遗留分组', '2026-01-01T00:00:00Z');
+                "#,
+            )
+            .unwrap();
+        }
+        // 打开：播种 admin 并接管无主数据，不再追加默认分组
+        let c = open(&path).unwrap();
+        let admin = list_users(&c).unwrap()[0].id;
+        let groups = list_groups(&c, admin).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].name, "遗留分组");
+        drop(c);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn migrates_legacy_global_unique() {
+        let path = std::env::temp_dir().join(format!("todo4agent-migrate-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        // 构造旧版库：name 列级 UNIQUE（全局、含软删除）
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(
+                r#"
+                CREATE TABLE groups (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name       TEXT NOT NULL UNIQUE,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    deleted_at TEXT,
+                    user_id    INTEGER
+                );
+                CREATE TABLE tasks (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id    INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    title       TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    status      TEXT NOT NULL DEFAULT 'pending',
+                    due_at      TEXT,
+                    created_at  TEXT NOT NULL,
+                    updated_at  TEXT NOT NULL,
+                    sort_order  INTEGER NOT NULL DEFAULT 0,
+                    deleted_at  TEXT
+                );
+                INSERT INTO groups (id, name, created_at, user_id) VALUES
+                    (1, '旧组', '2026-01-01T00:00:00Z', 1),
+                    (2, '删除组', '2026-01-01T00:00:00Z', 1);
+                UPDATE groups SET deleted_at = '2026-01-02T00:00:00Z' WHERE id = 2;
+                INSERT INTO tasks (id, group_id, title, created_at, updated_at)
+                    VALUES (1, 1, '旧任务', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+                "#,
+            )
+            .unwrap();
+        }
+
+        // 重新打开触发迁移：表重建 + 部分唯一索引
+        let c = open(&path).unwrap();
+        let table_sql: String = c
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'groups'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!table_sql.contains("UNIQUE"));
+        let idx_count: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_groups_user_name'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(idx_count, 1);
+
+        // 数据完整保留
+        let task_count: i64 = c.query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0)).unwrap();
+        assert_eq!(task_count, 1);
+
+        // 回收站中的名字可以复用；其他用户可以用同名分组
+        let reused = create_group(&c, 1, "删除组").unwrap();
+        assert_ne!(reused.id, 2);
+        create_group(&c, 2, "旧组").unwrap();
+        // 同一用户的活动分组仍然不能重名
+        assert!(create_group(&c, 1, "删除组").is_err());
+
+        drop(c);
+        let _ = std::fs::remove_file(&path);
     }
 }

@@ -1,4 +1,14 @@
-import type { AuthStatus, ExportDoc, Group, Task, TaskInput, TaskUpdate } from './types'
+import type {
+  AuthStatus,
+  ExportDoc,
+  Group,
+  ImportResult,
+  PromptInfo,
+  SettingsInfo,
+  Task,
+  TaskInput,
+  TaskUpdate,
+} from './types'
 
 const TOKEN_KEY = 'todo4agent_token'
 
@@ -81,6 +91,11 @@ export function renameGroup(id: number, name: string): Promise<Group> {
   return request<Group>(`/groups/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) })
 }
 
+/** 切换清单锁定：锁定后 Agent 无法通过 MCP 编辑该清单，界面编辑不受影响 */
+export function setGroupLocked(id: number, locked: boolean): Promise<Group> {
+  return request<Group>(`/groups/${id}`, { method: 'PATCH', body: JSON.stringify({ locked }) })
+}
+
 /** 按给定顺序重排全部分组 */
 export function reorderGroups(groupIds: number[]): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>('/groups/reorder', {
@@ -138,8 +153,9 @@ export function purgeTask(id: number): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(`/tasks/${id}/purge`, { method: 'DELETE' })
 }
 
-export function restoreGroup(id: number): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>(`/groups/${id}/restore`, { method: 'POST' })
+/** 恢复分组；原名被现有分组占用时会自动重命名，renamed_to 为新名字 */
+export function restoreGroup(id: number): Promise<{ ok: boolean; renamed_to?: string }> {
+  return request(`/groups/${id}/restore`, { method: 'POST' })
 }
 
 export function purgeGroup(id: number): Promise<{ ok: boolean }> {
@@ -162,6 +178,21 @@ export function importDoc(doc: ExportDoc): Promise<ImportResult> {
   })
 }
 
+// ---------- 提示词 ----------
+
+/** 获取当前用户提示词（未自定义时返回默认内容） */
+export function getPrompt(): Promise<PromptInfo> {
+  return request<PromptInfo>('/prompt')
+}
+
+/** 全量保存提示词（与 MCP prompt_update 同一实现） */
+export function savePrompt(content: string): Promise<PromptInfo> {
+  return request<PromptInfo>('/prompt', {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  })
+}
+
 // ---------- 设置 ----------
 
 export function getSettings(): Promise<SettingsInfo> {
@@ -178,6 +209,11 @@ export function updateSettings(input: {
     method: 'PATCH',
     body: JSON.stringify(input),
   })
+}
+
+/** 在系统文件管理器中打开数据库文件位置（后端执行），返回文件路径 */
+export function openDbLocation(): Promise<{ ok: boolean; path: string }> {
+  return request<{ ok: boolean; path: string }>('/settings/db-location', { method: 'POST' })
 }
 
 /** 导出 JSON 并触发浏览器下载 */

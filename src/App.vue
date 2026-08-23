@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
 import GroupSidebar from './components/GroupSidebar.vue'
 import ContextMenu, { type ContextMenuItem } from './components/ContextMenu.vue'
@@ -9,6 +9,7 @@ import TaskListView from './components/TaskListView.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SettingsView from './components/SettingsView.vue'
 import MCPView from './components/MCPView.vue'
+import PromptView from './components/PromptView.vue'
 import TrashView from './components/TrashView.vue'
 import LoginView from './components/LoginView.vue'
 import {
@@ -29,6 +30,7 @@ import {
   reorderTasks,
   restoreGroup,
   restoreTask,
+  setGroupLocked,
   setToken,
   updateTask,
 } from './api'
@@ -58,21 +60,19 @@ const groupDialogTarget = ref<Group | null>(null)
 const confirmDialog = ref(false)
 type TrashAction = 'group' | 'task' | 'purgeGroup' | 'purgeTask' | 'emptyTrash'
 const confirmAction = ref<{ type: TrashAction; id?: number } | null>(null)
-const currentView = ref<'tasks' | 'settings' | 'mcp' | 'trash'>('tasks')
+const currentView = ref<'tasks' | 'settings' | 'mcp' | 'prompt' | 'trash'>('tasks')
 
 // ---------- 认证门控 ----------
 
-type AuthState = 'loading' | 'local' | 'guest' | 'ready'
+type AuthState = 'loading' | 'guest' | 'ready'
 const authState = ref<AuthState>('loading')
 const currentUser = ref<string | null>(null)
 
-/** 校验当前会话：本地模式直接进入；多用户模式需有效 token */
+/** 校验当前会话：需有效 token，否则进入登录页 */
 async function initAuth() {
   try {
     const s = await authStatus()
-    if (s.mode === 'local') {
-      authState.value = 'local'
-    } else if (s.user_id != null) {
+    if (s.user_id != null) {
       currentUser.value = s.username
       authState.value = 'ready'
     } else {
@@ -170,8 +170,19 @@ async function refresh() {
 
 const authReady = computed(() => authState.value !== 'loading')
 
+/** 淡出并移除 index.html 的开屏动画（应用首屏已就绪） */
+function dismissSplash() {
+  const el = document.getElementById('splash')
+  if (!el) return
+  el.classList.add('splash-out')
+  window.setTimeout(() => el.remove(), 500)
+}
+
 onMounted(async () => {
   await initAuth()
+  // 首屏（登录页或主界面）渲染完成后淡出开屏，分组数据在其后继续加载
+  await nextTick()
+  dismissSplash()
   if (authState.value !== 'guest') {
     await loadGroups()
   }
@@ -205,6 +216,21 @@ async function onGroupDialogSave(name: string) {
       await renameGroup(groupDialogTarget.value.id, name)
       notify(`已重命名分组：${name}`)
     }
+    await loadGroups()
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
+/** 切换清单锁定：锁定后该清单 Agent 无法通过 MCP 编辑，界面编辑不受影响 */
+async function onToggleGroupLock(group: Group) {
+  try {
+    const g = await setGroupLocked(group.id, !group.locked)
+    notify(
+      g.locked
+        ? `已锁定清单「${g.name}」：Agent 无法编辑该清单`
+        : `已解锁清单「${g.name}」：Agent 可编辑`,
+    )
     await loadGroups()
   } catch (e) {
     notify((e as Error).message)
@@ -350,8 +376,8 @@ async function onRestoreTrash(kind: 'group' | 'task', id: number) {
       notify('已恢复任务')
       await loadTasks()
     } else {
-      await restoreGroup(id)
-      notify('已恢复分组及其任务')
+      const r = await restoreGroup(id)
+      notify(r.renamed_to ? `原名被占用，已恢复并重命名为：${r.renamed_to}` : '已恢复分组及其任务')
       await loadGroups()
     }
     await loadTrash()
@@ -458,7 +484,9 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
         @create="openCreateGroup"
         @rename="openRenameGroup"
         @delete="onDeleteGroup"
+        @toggle-lock="onToggleGroupLock"
         @mcp="currentView = 'mcp'"
+        @prompt="currentView = 'prompt'"
         @settings="currentView = 'settings'"
         @trash="currentView = 'trash'"
         @reorder="onReorderGroups"
@@ -496,7 +524,8 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           @purge="onPurgeTrash"
           @empty="onEmptyTrash"
         />
-        <MCPView v-else :current-user="currentUser" @notify="notify" />
+        <MCPView v-else-if="currentView === 'mcp'" :current-user="currentUser" @notify="notify" />
+        <PromptView v-else @notify="notify" @error="notify" />
       </v-container>
     </v-main>
 

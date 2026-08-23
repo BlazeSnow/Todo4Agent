@@ -30,6 +30,29 @@ fn arg_opt_i64(args: &Value, key: &str) -> Result<Option<i64>, String> {
 
 use crate::db;
 
+/// 清单（分组）锁定提示：锁定后 Agent 无法编辑该清单，界面编辑不受影响
+fn locked_err(name: &str) -> String {
+    format!("清单「{name}」已锁定，Agent 无法编辑（请让用户在界面侧边栏分组菜单解锁）")
+}
+
+/// 分组已锁定时输出错误并返回 true（调用方据此返回）
+fn group_locked(conn: &Connection, user_id: i64, group_id: i64, id: &Value) -> bool {
+    if let Ok(Some((name, true))) = db::group_lock_info(conn, user_id, group_id) {
+        tool_error(id, locked_err(&name));
+        return true;
+    }
+    false
+}
+
+/// 任务所在分组已锁定时输出错误并返回 true（调用方据此返回）
+fn task_locked(conn: &Connection, user_id: i64, task_id: i64, id: &Value) -> bool {
+    if let Ok(Some((_, name, true))) = db::task_group_lock(conn, user_id, task_id) {
+        tool_error(id, locked_err(&name));
+        return true;
+    }
+    false
+}
+
 pub(super) struct ToolDef {
     pub name: &'static str,
     pub description: &'static str,
@@ -154,12 +177,12 @@ pub(super) fn tools() -> Vec<ToolDef> {
         ),
         ToolDef::new(
             "task_export",
-            "导出全部任务清单为 JSON 文档（与界面导出同构）",
+            "导出任务清单与提示词为 JSON 文档（与界面导出同构）",
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
             "task_import",
-            "导入任务清单 JSON 文档（与 task_export 输出同构，同名分组并入、新分组新建）",
+            "导入 JSON 文档（与 task_export 输出同构：同名分组并入、新分组新建，含 prompt 字段时提示词一并导入）",
             json!({
                 "type": "object",
                 "properties": {
@@ -171,10 +194,38 @@ pub(super) fn tools() -> Vec<ToolDef> {
                 "required": ["doc"]
             }),
         ),
+        ToolDef::new(
+            "user_password",
+            "修改当前账号（启动凭据对应用户）的密码；成功后该用户的已登录会话全部失效，需同步更新客户端配置中的 TODO4AGENT_PASSWORD",
+            json!({
+                "type": "object",
+                "properties": {
+                    "old_password": { "type": "string", "description": "当前密码（必填）" },
+                    "new_password": { "type": "string", "description": "新密码，至少 4 位（必填）" }
+                },
+                "required": ["old_password", "new_password"]
+            }),
+        ),
+        ToolDef::new(
+            "prompt_get",
+            "读取当前用户的 Agent 提示词（协作规范，类似 AGENTS.md）；默认为空，content 为空表示尚未设置",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        ToolDef::new(
+            "prompt_update",
+            "全量更新当前用户的 Agent 提示词；建议先 prompt_get 获取当前内容，按需修改后整体写回；传空字符串为清空",
+            json!({
+                "type": "object",
+                "properties": {
+                    "content": { "type": "string", "description": "新提示词全文；传空字符串清空（必填）" }
+                },
+                "required": ["content"]
+            }),
+        ),
     ]
 }
 
-pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Option<i64>, id: &Value) {
+pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i64, id: &Value) {
     let db_err = |e: rusqlite::Error| tool_error(id, format!("数据库错误: {e}"));
 
     match name {
@@ -219,6 +270,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if group_locked(conn, user_id, gid, id) {
+                return;
+            }
             match db::rename_group(conn, user_id, gid, &name) {
                 Ok(Some(g)) => tool_result(id, json!(g).to_string()),
                 Ok(None) => tool_error(id, "分组不存在".into()),
@@ -232,6 +286,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if group_locked(conn, user_id, gid, id) {
+                return;
+            }
             match db::delete_group(conn, user_id, gid) {
                 Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
                 Ok(false) => tool_error(id, "分组不存在".into()),
@@ -255,6 +312,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if group_locked(conn, user_id, gid, id) {
+                return;
+            }
             let title = match arg_str(args, "title") {
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
@@ -267,7 +327,10 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
             let due_at = args.get("due_at").and_then(Value::as_str).map(String::from);
             match db::create_task(conn, user_id, gid, &title, &description, due_at.as_deref()) {
                 Ok(t) => tool_result(id, json!(t).to_string()),
-                Err(e) if db::is_unique_violation(&e) => tool_error(id, "分组不存在".into()),
+                // create_task 预检查分组归属，分组缺失时返回 QueryReturnedNoRows
+                Err(rusqlite::Error::QueryReturnedNoRows) => {
+                    tool_error(id, "分组不存在".into())
+                }
                 Err(e) => db_err(e),
             }
         }
@@ -277,6 +340,15 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if task_locked(conn, user_id, tid, id) {
+                return;
+            }
+            // 移入锁定清单同样拒绝
+            if let Some(target) = args.get("group_id").and_then(Value::as_i64) {
+                if group_locked(conn, user_id, target, id) {
+                    return;
+                }
+            }
             let mut patch = db::TaskUpdate::default();
             if let Some(v) = args.get("title") {
                 match v.as_str() {
@@ -320,6 +392,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if task_locked(conn, user_id, tid, id) {
+                return;
+            }
             let done = match args.get("done") {
                 Some(Value::Bool(b)) => *b,
                 _ => return tool_error(id, "参数错误: done 必填且必须是布尔值".into()),
@@ -340,6 +415,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if task_locked(conn, user_id, tid, id) {
+                return;
+            }
             match db::delete_task(conn, user_id, tid) {
                 Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
                 Ok(false) => tool_error(id, "任务不存在".into()),
@@ -363,8 +441,87 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
             if doc.groups.is_empty() {
                 return tool_error(id, "导入内容为空".into());
             }
+            // 文档包含已锁定清单时整体拒绝（用户可在界面导入或先解锁）
+            let locked_names = match db::locked_group_names(conn, user_id) {
+                Ok(v) => v,
+                Err(e) => return db_err(e),
+            };
+            let conflicts: Vec<String> = doc
+                .groups
+                .iter()
+                .map(|g| g.name.trim())
+                .filter(|n| !n.is_empty() && locked_names.iter().any(|l| l == n))
+                .map(String::from)
+                .collect();
+            if !conflicts.is_empty() {
+                return tool_error(
+                    id,
+                    format!(
+                        "文档包含已锁定的清单：{}（请让用户在界面导入或先解锁）",
+                        conflicts.join("、")
+                    ),
+                );
+            }
             match db::import_doc(conn, user_id, &doc) {
                 Ok(r) => tool_result(id, json!(r).to_string()),
+                Err(e) => db_err(e),
+            }
+        }
+
+        "user_password" => {
+            // 密码不做 trim：与 HTTP 接口一致，按原样校验
+            let old = match args.get("old_password").and_then(Value::as_str) {
+                Some(v) => v.to_string(),
+                None => return tool_error(id, "参数错误: old_password 必填且必须是字符串".into()),
+            };
+            let new = match args.get("new_password").and_then(Value::as_str) {
+                Some(v) => v.to_string(),
+                None => return tool_error(id, "参数错误: new_password 必填且必须是字符串".into()),
+            };
+            if new.len() < 4 {
+                return tool_error(id, "参数错误: new_password 至少 4 位".into());
+            }
+            match db::change_user_password(conn, user_id, &old, &new) {
+                Ok(true) => {
+                    // 与界面改密一致：吊销该用户全部已登录会话
+                    // （MCP 自身用环境变量凭据，当前连接不受影响）
+                    let _ = db::delete_user_sessions(conn, user_id, None);
+                    tool_result(
+                        id,
+                        json!({
+                            "ok": true,
+                            "note": "密码已修改；请同步更新 MCP 客户端配置中的 TODO4AGENT_PASSWORD（当前连接不受影响，下次启动需用新密码）"
+                        })
+                        .to_string(),
+                    )
+                }
+                Ok(false) => tool_error(id, "原密码错误".into()),
+                Err(e) => db_err(e),
+            }
+        }
+
+        "prompt_get" => match db::get_custom_prompt(conn, user_id) {
+            Ok(Some((content, updated_at))) => tool_result(
+                id,
+                json!({ "content": content, "is_default": false, "updated_at": updated_at }).to_string(),
+            ),
+            Ok(None) => tool_result(
+                id,
+                json!({ "content": "", "is_default": true, "updated_at": null }).to_string(),
+            ),
+            Err(e) => db_err(e),
+        },
+
+        "prompt_update" => {
+            let content = match args.get("content").and_then(Value::as_str) {
+                Some(s) => s.to_string(),
+                None => return tool_error(id, "参数错误: content 必填且必须是字符串".into()),
+            };
+            match db::set_prompt(conn, user_id, &content) {
+                Ok((is_default, updated_at)) => tool_result(
+                    id,
+                    json!({ "ok": true, "is_default": is_default, "updated_at": updated_at }).to_string(),
+                ),
                 Err(e) => db_err(e),
             }
         }
@@ -388,5 +545,8 @@ mod tests {
         let names: Vec<&str> = tools().iter().map(|t| t.name).collect();
         assert!(names.contains(&"group_delete"));
         assert!(names.contains(&"task_import"));
+        assert!(names.contains(&"user_password"));
+        assert!(names.contains(&"prompt_get"));
+        assert!(names.contains(&"prompt_update"));
     }
 }

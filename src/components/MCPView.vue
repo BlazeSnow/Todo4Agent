@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { createHighlighter, type Highlighter } from 'shiki'
 
 const props = defineProps<{
-  /** 当前登录用户名（本地模式为 null） */
+  /** 当前登录用户名 */
   currentUser: string | null
 }>()
 
@@ -16,6 +17,8 @@ const mcpTools = [
   'group_list / group_create / group_rename / group_delete',
   'task_list / task_create / task_update',
   'task_complete / task_delete / task_export / task_import',
+  'user_password',
+  'prompt_get / prompt_update',
 ]
 
 async function copyCommand() {
@@ -46,6 +49,38 @@ const configText = computed(() =>
     2,
   ),
 )
+
+// ---------- 配置示例高亮（Shiki 双主题） ----------
+
+/** Shiki 输出的 HTML：内嵌 light/dark 两组 CSS 变量，随 Vuetify 深浅色切换 */
+const configHtml = ref('')
+let highlighter: Highlighter | null = null
+
+function renderHighlighted() {
+  if (!highlighter) return
+  configHtml.value = highlighter.codeToHtml(configText.value, {
+    lang: 'json',
+    themes: { light: 'github-light', dark: 'github-dark' },
+    // 只输出 light/dark CSS 变量，不把浅色字面值写进内联 style，
+    // 否则内联样式优先级高于主题切换 CSS，深色模式下仍是浅色
+    defaultColor: false,
+  })
+}
+
+onMounted(async () => {
+  try {
+    highlighter = await createHighlighter({
+      themes: ['github-light', 'github-dark'],
+      langs: ['json'],
+    })
+    renderHighlighted()
+  } catch {
+    // 高亮引擎加载失败时回退纯文本代码块
+    configHtml.value = ''
+  }
+})
+
+watch(configText, renderHighlighted)
 
 async function copyConfig() {
   try {
@@ -96,7 +131,10 @@ async function copyConfig() {
         </v-btn>
       </v-card-title>
       <v-card-text>
-        <pre class="code-block pa-3 rounded"><code>{{ configText }}</code></pre>
+        <!-- Shiki 渲染的代码块（v-html 内容为本地生成的配置串，安全）；
+             高亮不可用时回退纯文本 -->
+        <div v-if="configHtml" class="code-block rounded" v-html="configHtml" />
+        <pre v-else class="code-block pa-3 rounded"><code>{{ configText }}</code></pre>
       </v-card-text>
     </v-card>
 
@@ -117,12 +155,44 @@ async function copyConfig() {
 </template>
 
 <style>
-/* 代码块面板：深色主题用近黑面板色，浅色主题沿用 surface-variant */
-.v-theme--dark .code-block {
+/* Shiki 双主题：按 Vuetify 主题类切换内嵌的 light/dark CSS 变量 */
+.shiki,
+.shiki span {
+  color: var(--shiki-light);
+  font-style: var(--shiki-light-font-style);
+  font-weight: var(--shiki-light-font-weight);
+  text-decoration: var(--shiki-light-text-decoration);
+}
+.shiki {
+  background-color: var(--shiki-light-bg);
+}
+.v-theme--dark .shiki,
+.v-theme--dark .shiki span {
+  color: var(--shiki-dark);
+  font-style: var(--shiki-dark-font-style);
+  font-weight: var(--shiki-dark-font-weight);
+  text-decoration: var(--shiki-dark-text-decoration);
+}
+.v-theme--dark .shiki {
+  background-color: var(--shiki-dark-bg);
+}
+
+/* Shiki 代码块排版（含回退的纯文本代码块） */
+.code-block pre {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+}
+
+/* 高亮不可用时的纯文本回退：深色主题用近黑面板色，浅色沿用 surface-variant */
+.v-theme--dark pre.code-block {
   background: #16181d;
   color: #d6d9df;
 }
-.v-theme--light .code-block {
+.v-theme--light pre.code-block {
   background: rgb(var(--v-theme-surface-variant));
 }
 </style>
