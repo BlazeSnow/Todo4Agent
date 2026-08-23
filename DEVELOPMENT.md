@@ -80,6 +80,7 @@ Todo4Agent/
 | `pnpm backend`                           | headless 后端：Rust HTTP 服务 + WebUI（端口 3000）                           |
 | `pnpm mcp`                               | 启动 MCP stdio 服务（供 Agent 连接，等价于 `todo4agent mcp`）                |
 | `cargo run --manifest-path src-tauri/Cargo.toml -- help` | 查看后端 CLI 帮助（运行模式、MCP 配置示例、数据库路径）      |
+| `cargo run --manifest-path src-tauri/Cargo.toml -- serve --port 8080` | 指定端口无界面启动（`--port` 本次运行有效，优先于设置页配置） |
 | `pnpm tauri dev`                         | 桌面开发模式（后端 3000 + 窗口加载 Vite 3001）                               |
 | `pnpm tauri build`                       | 打包当前平台安装包                                                           |
 | `cargo test`（src-tauri 下）             | 运行 Rust 单元测试                                                           |

@@ -184,12 +184,14 @@ pub async fn bind_tokio(preferred: u16, lan: bool) -> std::io::Result<(tokio::ne
     ))
 }
 
-/// 在当前线程阻塞运行 HTTP 服务（headless serve 模式）
-pub fn serve_blocking() {
+/// 在当前线程阻塞运行 HTTP 服务（headless serve 模式）。
+/// port_override：命令行 --port 指定的端口，本次运行优先于设置页保存的端口
+pub fn serve_blocking(port_override: Option<u16>) {
     let rt = tokio::runtime::Runtime::new().expect("创建 tokio runtime 失败");
     rt.block_on(async move {
         let conn = db::open(&db::db_path()).expect("打开数据库失败");
-        let preferred = db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT);
+        let preferred =
+            port_override.unwrap_or_else(|| db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT));
         let lan = db::get_webui_lan(&conn).unwrap_or(true);
         let (listener, port) = bind_tokio(preferred, lan).await.expect("绑定端口失败");
         if lan {
@@ -210,14 +212,16 @@ pub fn serve_blocking() {
     });
 }
 
-/// 在后台线程运行 HTTP 服务，返回实际端口（tauri 桌面模式使用）
-pub fn spawn_server() -> u16 {
+/// 在后台线程运行 HTTP 服务，返回实际端口（tauri 桌面模式使用）。
+/// port_override：命令行 --port 指定的端口，本次运行优先于设置页保存的端口
+pub fn spawn_server(port_override: Option<u16>) -> u16 {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("创建 tokio runtime 失败");
         rt.block_on(async move {
             let conn = db::open(&db::db_path()).expect("打开数据库失败");
-            let preferred = db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT);
+            let preferred =
+                port_override.unwrap_or_else(|| db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT));
             let lan = db::get_webui_lan(&conn).unwrap_or(true);
             let (listener, port) = bind_tokio(preferred, lan).await.expect("绑定端口失败");
             if lan {

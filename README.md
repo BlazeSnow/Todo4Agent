@@ -27,6 +27,7 @@
 | `todo4agent mcp` | 启动 MCP Server（stdio，供 Agent 客户端连接） |
 | `todo4agent help` | 查看完整帮助（含 MCP 客户端配置示例与初始账号说明） |
 | `todo4agent version` | 查看版本号 |
+| `--port <端口>` | 指定 WebUI/API 监听端口（1024-65535），本次运行有效、优先于设置页保存的端口，如 `todo4agent serve --port 8080`；适用于桌面与 serve 模式 |
 
 ## 首次使用
 

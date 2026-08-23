@@ -20,8 +20,8 @@ mod auth;
 mod db;
 mod mcp;
 
-/// 命令行运行模式：由首个被识别的参数决定
-#[derive(Debug)]
+/// 命令行运行模式
+#[derive(Debug, PartialEq)]
 enum RunMode {
     /// Tauri 桌面应用（默认，无参数或仅非选项参数）
     Desktop,
@@ -29,42 +29,75 @@ enum RunMode {
     Mcp,
     Help,
     Version,
-    /// 以 - 开头但未被识别的参数：用法错误，避免拼错参数时误入桌面模式
-    UnknownFlag(String),
 }
 
-fn parse_mode<I: IntoIterator<Item = String>>(args: I) -> RunMode {
-    for a in args {
+/// 解析后的命令行选项
+#[derive(Debug, PartialEq)]
+struct Cli {
+    /// 运行模式：首个被识别的模式参数生效
+    mode: RunMode,
+    /// `--port` 指定的端口（1024-65535）：本次运行有效，优先于设置页保存的端口
+    port: Option<u16>,
+}
+
+/// 解析命令行参数。Err 为用法错误（附加人类可读说明，调用方以退出码 2 结束）
+fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Cli, String> {
+    let mut mode = RunMode::Desktop;
+    let mut port = None;
+    let mut it = args.into_iter();
+    while let Some(a) = it.next() {
         match a.as_str() {
-            "mcp" | "--mcp" => return RunMode::Mcp,
-            "serve" | "--serve" => return RunMode::Serve,
-            "help" | "--help" | "-h" => return RunMode::Help,
-            "version" | "--version" | "-V" => return RunMode::Version,
-            other if other.starts_with('-') => {
-                return RunMode::UnknownFlag(other.to_string())
+            // 模式参数：首个生效，后续忽略
+            "mcp" | "--mcp" if mode == RunMode::Desktop => mode = RunMode::Mcp,
+            "serve" | "--serve" if mode == RunMode::Desktop => mode = RunMode::Serve,
+            "help" | "--help" | "-h" if mode == RunMode::Desktop => mode = RunMode::Help,
+            "version" | "--version" | "-V" if mode == RunMode::Desktop => mode = RunMode::Version,
+            "--port" => {
+                let val = it.next().ok_or("--port 需要端口号，例如 --port 8080")?;
+                port = Some(parse_port(&val)?);
             }
-            // 非选项参数（如拖放的文件路径）忽略，维持默认桌面模式
-            _ => {}
+            other => {
+                if let Some(v) = other.strip_prefix("--port=") {
+                    port = Some(parse_port(v)?);
+                } else if other.starts_with('-') {
+                    return Err(format!("未知参数: {other}"));
+                }
+                // 非选项参数（如拖放的文件路径）忽略，维持默认桌面模式
+            }
         }
     }
-    RunMode::Desktop
+    Ok(Cli { mode, port })
+}
+
+/// 校验端口：1024-65535（与设置页的端口范围一致）
+fn parse_port(s: &str) -> Result<u16, String> {
+    let invalid = || format!("端口必须是 1024-65535 的整数：{s}");
+    let n: u16 = s.parse().map_err(|_| invalid())?;
+    if !(1024..=65535).contains(&n) {
+        return Err(invalid());
+    }
+    Ok(n)
 }
 
 fn main() {
-    match parse_mode(std::env::args().skip(1)) {
-        RunMode::Mcp => {
-            let conn = db::open(&db::db_path()).expect("打开数据库失败");
-            mcp::serve(&conn);
-        }
-        RunMode::Serve => api::serve_blocking(),
-        RunMode::Help => print_help(),
-        RunMode::Version => println!("todo4agent {}", env!("CARGO_PKG_VERSION")),
-        RunMode::UnknownFlag(arg) => {
-            eprintln!("未知参数: {arg}\n");
+    let cli = match parse_args(std::env::args().skip(1)) {
+        Ok(c) => c,
+        Err(msg) => {
+            eprintln!("{msg}\n");
             print_help();
             std::process::exit(2);
         }
-        RunMode::Desktop => run_desktop(),
+    };
+    match cli.mode {
+        RunMode::Mcp => {
+            // MCP 为 stdio 服务，不监听端口，忽略 --port
+            let conn = db::open(&db::db_path()).expect("打开数据库失败");
+            mcp::serve(&conn);
+        }
+        RunMode::Serve => api::serve_blocking(cli.port),
+        RunMode::Help => print_help(),
+        RunMode::Version => println!("todo4agent {}", env!("CARGO_PKG_VERSION")),
+        RunMode::Desktop => run_desktop(cli.port),
     }
 }
 
@@ -85,6 +118,10 @@ fn print_help() {
   todo4agent mcp          启动 MCP Server（stdio，供 Agent 客户端连接）
   todo4agent help         显示本帮助
   todo4agent version      显示版本号
+
+选项:
+  --port <端口>           指定 WebUI/API 监听端口（1024-65535），如 todo4agent serve --port 8080；
+                          本次运行有效，优先于设置页保存的端口；适用于桌面与 serve 模式
 
 MCP 接入（客户端配置示例，ZCode / Claude Desktop 通用格式）:
 {
@@ -114,9 +151,9 @@ MCP 接入（客户端配置示例，ZCode / Claude Desktop 通用格式）:
     println!("\n文档: https://github.com/BlazeSnow/Todo4Agent");
 }
 
-fn run_desktop() {
+fn run_desktop(port_override: Option<u16>) {
     // 桌面模式：先启动 HTTP 服务，再创建窗口加载 WebUI
-    let port = api::spawn_server();
+    let port = api::spawn_server(port_override);
     let dev = std::env::var("TAURI_ENV_DEBUG").map(|v| v == "true").unwrap_or(false);
     let url = if dev {
         "http://localhost:3001".to_string()
@@ -194,35 +231,56 @@ mod tests {
         v.iter().map(|s| s.to_string()).collect()
     }
 
+    fn parse(v: &[&str]) -> Cli {
+        parse_args(args(v)).expect("parse_args 应成功")
+    }
+
     #[test]
     fn parses_modes() {
-        assert!(matches!(parse_mode(args(&[])), RunMode::Desktop));
-        assert!(matches!(parse_mode(args(&["mcp"])), RunMode::Mcp));
-        assert!(matches!(parse_mode(args(&["--mcp"])), RunMode::Mcp));
-        assert!(matches!(parse_mode(args(&["serve"])), RunMode::Serve));
-        assert!(matches!(parse_mode(args(&["--serve"])), RunMode::Serve));
-        assert!(matches!(parse_mode(args(&["help"])), RunMode::Help));
-        assert!(matches!(parse_mode(args(&["--help"])), RunMode::Help));
-        assert!(matches!(parse_mode(args(&["-h"])), RunMode::Help));
-        assert!(matches!(parse_mode(args(&["version"])), RunMode::Version));
-        assert!(matches!(parse_mode(args(&["--version"])), RunMode::Version));
-        assert!(matches!(parse_mode(args(&["-V"])), RunMode::Version));
+        assert_eq!(parse(&[]), Cli { mode: RunMode::Desktop, port: None });
+        assert_eq!(parse(&["mcp"]).mode, RunMode::Mcp);
+        assert_eq!(parse(&["--mcp"]).mode, RunMode::Mcp);
+        assert_eq!(parse(&["serve"]).mode, RunMode::Serve);
+        assert_eq!(parse(&["--serve"]).mode, RunMode::Serve);
+        assert_eq!(parse(&["help"]).mode, RunMode::Help);
+        assert_eq!(parse(&["--help"]).mode, RunMode::Help);
+        assert_eq!(parse(&["-h"]).mode, RunMode::Help);
+        assert_eq!(parse(&["version"]).mode, RunMode::Version);
+        assert_eq!(parse(&["--version"]).mode, RunMode::Version);
+        assert_eq!(parse(&["-V"]).mode, RunMode::Version);
         // 非选项参数（如文件路径）不改变默认桌面模式
-        assert!(matches!(parse_mode(args(&["file.json"])), RunMode::Desktop));
-        // 首个被识别的参数生效
-        assert!(matches!(parse_mode(args(&["x.json", "mcp"])), RunMode::Mcp));
+        assert_eq!(parse(&["file.json"]).mode, RunMode::Desktop);
+        // 首个被识别的模式参数生效
+        assert_eq!(parse(&["x.json", "mcp"]).mode, RunMode::Mcp);
+        assert_eq!(parse(&["serve", "mcp"]).mode, RunMode::Serve);
+    }
+
+    #[test]
+    fn parses_port() {
+        assert_eq!(parse(&["--port", "8080"]).port, Some(8080));
+        assert_eq!(parse(&["--port=9000"]).port, Some(9000));
+        // 与模式参数的组合、顺序无关
+        assert_eq!(
+            parse(&["serve", "--port", "8080"]),
+            Cli { mode: RunMode::Serve, port: Some(8080) }
+        );
+        assert_eq!(parse(&["--port=8080", "serve"]).mode, RunMode::Serve);
+        // 范围边界
+        assert_eq!(parse(&["--port", "1024"]).port, Some(1024));
+        assert_eq!(parse(&["--port", "65535"]).port, Some(65535));
+        // 非法值：越界 / 非数字 / 缺参
+        assert!(parse_args(args(&["--port", "1023"])).is_err());
+        assert!(parse_args(args(&["--port", "65536"])).is_err());
+        assert!(parse_args(args(&["--port", "abc"])).is_err());
+        assert!(parse_args(args(&["--port=8o80"])).is_err());
+        assert!(parse_args(args(&["--port"])).is_err());
     }
 
     #[test]
     fn unknown_flag_is_usage_error() {
-        match parse_mode(args(&["--bogus"])) {
-            RunMode::UnknownFlag(a) => assert_eq!(a, "--bogus"),
-            other => panic!("期望 UnknownFlag，实际 {other:?}"),
-        }
+        let err = parse_args(args(&["--bogus"])).unwrap_err();
+        assert!(err.contains("--bogus"));
         // 未知选项在模式参数之前时同样报错
-        assert!(matches!(
-            parse_mode(args(&["--bogus", "mcp"])),
-            RunMode::UnknownFlag(_)
-        ));
+        assert!(parse_args(args(&["--bogus", "mcp"])).is_err());
     }
 }
