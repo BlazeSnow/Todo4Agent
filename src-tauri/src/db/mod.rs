@@ -139,6 +139,11 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
             token   TEXT PRIMARY KEY,
             user_id INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS prompts (
+            user_id    INTEGER PRIMARY KEY,
+            content    TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         "#,
     )?;
     ensure_task_sort_column(&conn)?;
@@ -326,6 +331,7 @@ const TASK_COLS: &str =
 
 pub mod export;
 pub mod groups;
+pub mod prompts;
 pub mod sessions;
 pub mod settings;
 pub mod tasks;
@@ -334,6 +340,7 @@ pub mod users;
 
 pub use export::*;
 pub use groups::*;
+pub use prompts::*;
 pub use sessions::*;
 pub use settings::*;
 pub use tasks::*;

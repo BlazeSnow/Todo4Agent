@@ -64,10 +64,12 @@ pub(crate) fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 pub mod auth;
 pub mod groups;
 pub mod misc;
+pub mod prompt;
 
 pub use auth::*;
 pub use groups::*;
 pub use misc::*;
+pub use prompt::*;
 pub use tasks::*;
 pub use trash::*;
 pub mod tasks;
@@ -117,6 +119,7 @@ fn api_router(state: SharedState) -> Router {
         .route("/import", post(import_json))
         .route("/settings", get(get_settings).patch(update_settings))
         .route("/settings/db-location", post(open_db_location))
+        .route("/prompt", get(get_prompt).put(put_prompt))
         .route("/auth/status", get(auth_status))
         .route("/auth/login", post(auth_login))
         .route("/auth/register", post(auth_register))
