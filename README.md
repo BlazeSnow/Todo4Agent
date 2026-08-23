@@ -18,6 +18,16 @@
 在 [GitHub Releases](https://github.com/BlazeSnow/Todo4Agent/releases) 下载对应平台的安装包即可。
 服务端口与对外监听可在「设置 → 服务」中修改（默认 3000 / 监听 0.0.0.0）。
 
+## 命令行
+
+| 命令 | 说明 |
+| --- | --- |
+| `todo4agent` | 启动桌面应用（后台同时提供 WebUI 服务） |
+| `todo4agent serve` | 无界面运行 WebUI / HTTP API |
+| `todo4agent mcp` | 启动 MCP Server（stdio，供 Agent 客户端连接） |
+| `todo4agent help` | 查看完整帮助（含 MCP 客户端配置示例与初始账号说明） |
+| `todo4agent version` | 查看版本号 |
+
 ## 首次使用
 
 系统自带初始账号：

@@ -114,7 +114,10 @@ fn resolve_mcp_user(
             Ok(None) => Err(format!("用户名或密码错误：{u}")),
             Err(e) => Err(format!("验证用户失败：{e}")),
         },
-        _ => Err("MCP 需要设置 TODO4AGENT_USERNAME 与 TODO4AGENT_PASSWORD 环境变量".to_string()),
+        _ => Err(
+            "MCP 需要设置 TODO4AGENT_USERNAME 与 TODO4AGENT_PASSWORD 环境变量（运行 todo4agent help 查看接入说明）"
+                .to_string(),
+        ),
     }
 }
 

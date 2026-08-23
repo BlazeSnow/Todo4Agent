@@ -57,7 +57,7 @@ Todo4Agent/
 ├── public/                 # 静态资源：icon.svg（WebUI favicon 与顶栏 logo）
 ├── src-tauri/              # Rust 后端（Tauri 2）
 │   ├── src/
-│   │   ├── main.rs         # 入口：tauri 桌面（含系统托盘）/ serve / mcp 三模式
+│   │   ├── main.rs         # 入口：tauri 桌面（含系统托盘）/ serve / mcp / help / version 模式
 │   │   ├── auth.rs         # 密码盐与哈希
 │   │   ├── api/            # axum HTTP API（认证、分组、任务、回收站、设置）
 │   │   ├── db/             # SQLite 数据层（多用户、会话、导出）
@@ -79,6 +79,7 @@ Todo4Agent/
 | `pnpm dev`                               | 纯 Web 模式启动 Vite（端口 3001，`/api` 代理到 127.0.0.1:3000）              |
 | `pnpm backend`                           | headless 后端：Rust HTTP 服务 + WebUI（端口 3000）                           |
 | `pnpm mcp`                               | 启动 MCP stdio 服务（供 Agent 连接，等价于 `todo4agent mcp`）                |
+| `cargo run --manifest-path src-tauri/Cargo.toml -- help` | 查看后端 CLI 帮助（运行模式、MCP 配置示例、数据库路径）      |
 | `pnpm tauri dev`                         | 桌面开发模式（后端 3000 + 窗口加载 Vite 3001）                               |
 | `pnpm tauri build`                       | 打包当前平台安装包                                                           |
 | `cargo test`（src-tauri 下）             | 运行 Rust 单元测试                                                           |
