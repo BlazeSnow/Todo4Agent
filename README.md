@@ -66,6 +66,7 @@ Agent 即可对你自己的任务清单执行增删改查、重排、导入导�
 | `task_list` / `task_create` / `task_update` | 任务查询与编辑（支持移动分组、改状态、截止时间） |
 | `task_complete` / `task_delete` | 完成切换 / 删除（软删除进回收站） |
 | `task_export` / `task_import` | 导出任务清单 JSON（与界面导出同构）/ 导入（同名分组并入） |
+| `user_password` | 修改当前账号密码（原密码 + 新密码；改后该用户已登录会话失效，需同步更新客户端 env 中的 `TODO4AGENT_PASSWORD`） |
 
 > 凭据说明：MCP 启动时必须通过 `TODO4AGENT_USERNAME` / `TODO4AGENT_PASSWORD` 指定并验证账号
 > （首次运行数据库会自动创建初始账号 admin / admin123），验证失败将拒绝启动。

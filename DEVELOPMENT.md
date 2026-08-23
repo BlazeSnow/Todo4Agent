@@ -171,6 +171,7 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
 - `group_list` / `group_create` / `group_rename` / `group_delete`（删除分组其下任务一并进回收站）
 - `task_list`（可按分组过滤）/ `task_create` / `task_update` / `task_complete` / `task_delete`
 - `task_export`（导出 JSON，与界面导出走同一实现）/ `task_import`（导入 JSON，同名分组并入）
+- `user_password`（修改当前账号密码；成功后吊销该用户全部已登录会话，MCP 当前连接不受影响）
 
 认证与环境变量：
 

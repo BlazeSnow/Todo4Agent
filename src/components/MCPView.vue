@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 const props = defineProps<{
-  /** 当前登录用户名（本地模式为 null） */
+  /** 当前登录用户名 */
   currentUser: string | null
 }>()
 
@@ -16,6 +16,7 @@ const mcpTools = [
   'group_list / group_create / group_rename / group_delete',
   'task_list / task_create / task_update',
   'task_complete / task_delete / task_export / task_import',
+  'user_password',
 ]
 
 async function copyCommand() {

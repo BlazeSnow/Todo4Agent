@@ -171,6 +171,18 @@ pub(super) fn tools() -> Vec<ToolDef> {
                 "required": ["doc"]
             }),
         ),
+        ToolDef::new(
+            "user_password",
+            "修改当前账号（启动凭据对应用户）的密码；成功后该用户的已登录会话全部失效，需同步更新客户端配置中的 TODO4AGENT_PASSWORD",
+            json!({
+                "type": "object",
+                "properties": {
+                    "old_password": { "type": "string", "description": "当前密码（必填）" },
+                    "new_password": { "type": "string", "description": "新密码，至少 4 位（必填）" }
+                },
+                "required": ["old_password", "new_password"]
+            }),
+        ),
     ]
 }
 
@@ -372,6 +384,38 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
             }
         }
 
+        "user_password" => {
+            // 密码不做 trim：与 HTTP 接口一致，按原样校验
+            let old = match args.get("old_password").and_then(Value::as_str) {
+                Some(v) => v.to_string(),
+                None => return tool_error(id, "参数错误: old_password 必填且必须是字符串".into()),
+            };
+            let new = match args.get("new_password").and_then(Value::as_str) {
+                Some(v) => v.to_string(),
+                None => return tool_error(id, "参数错误: new_password 必填且必须是字符串".into()),
+            };
+            if new.len() < 4 {
+                return tool_error(id, "参数错误: new_password 至少 4 位".into());
+            }
+            match db::change_user_password(conn, user_id, &old, &new) {
+                Ok(true) => {
+                    // 与界面改密一致：吊销该用户全部已登录会话
+                    // （MCP 自身用环境变量凭据，当前连接不受影响）
+                    let _ = db::delete_user_sessions(conn, user_id, None);
+                    tool_result(
+                        id,
+                        json!({
+                            "ok": true,
+                            "note": "密码已修改；请同步更新 MCP 客户端配置中的 TODO4AGENT_PASSWORD（当前连接不受影响，下次启动需用新密码）"
+                        })
+                        .to_string(),
+                    )
+                }
+                Ok(false) => tool_error(id, "原密码错误".into()),
+                Err(e) => db_err(e),
+            }
+        }
+
         _ => tool_error(id, format!("未知工具: {name}")),
     }
 }
@@ -391,5 +435,6 @@ mod tests {
         let names: Vec<&str> = tools().iter().map(|t| t.name).collect();
         assert!(names.contains(&"group_delete"));
         assert!(names.contains(&"task_import"));
+        assert!(names.contains(&"user_password"));
     }
 }
