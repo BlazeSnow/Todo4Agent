@@ -40,12 +40,53 @@ pub fn purge_task(conn: &Connection, user_id: Option<i64>, id: i64) -> SqlResult
     Ok(n > 0)
 }
 
-/// 从回收站恢复分组及其下任务（仅限该用户的回收站项）
-pub fn restore_group(conn: &Connection, user_id: Option<i64>, id: i64) -> SqlResult<bool> {
+/// 从回收站恢复分组及其下任务（仅限该用户的回收站项）。
+/// 原名被该用户的现有分组占用时自动重命名为「原名 (2)」「原名 (3)」……
+/// 返回值：Ok(None) = 不在回收站；Ok(Some(None)) = 原名恢复；
+/// Ok(Some(Some(new))) = 恢复成功并重命名为 new
+pub fn restore_group(
+    conn: &Connection,
+    user_id: Option<i64>,
+    id: i64,
+) -> SqlResult<Option<Option<String>>> {
     let tx = conn.unchecked_transaction()?;
+    let original: Option<String> = tx
+        .query_row(
+            "SELECT name FROM groups WHERE id = ?1 AND user_id IS ?2 AND deleted_at IS NOT NULL",
+            params![id, user_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(original) = original else {
+        return Ok(None);
+    };
+
+    let mut final_name = original.clone();
+    let mut suffix = 2u32;
+    loop {
+        let taken: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM groups
+                  WHERE user_id IS ?1 AND name = ?2 AND deleted_at IS NULL)",
+                params![user_id, final_name],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|n| n != 0)?;
+        if !taken {
+            break;
+        }
+        // 防御性上限：同名分组不可能多到用尽 999 个后缀
+        if suffix > 1000 {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        final_name = format!("{original} ({suffix})");
+        suffix += 1;
+    }
+
     let n = tx.execute(
-        "UPDATE groups SET deleted_at = NULL WHERE id = ?1 AND user_id IS ?2 AND deleted_at IS NOT NULL",
-        params![id, user_id],
+        "UPDATE groups SET deleted_at = NULL, name = ?3
+          WHERE id = ?1 AND user_id IS ?2 AND deleted_at IS NOT NULL",
+        params![id, user_id, final_name],
     )?;
     if n > 0 {
         tx.execute(
@@ -54,7 +95,11 @@ pub fn restore_group(conn: &Connection, user_id: Option<i64>, id: i64) -> SqlRes
         )?;
     }
     tx.commit()?;
-    Ok(n > 0)
+    Ok(Some(if final_name == original {
+        None
+    } else {
+        Some(final_name)
+    }))
 }
 
 /// 彻底删除分组及其下任务（物理删除，不可恢复；仅限该用户的分组）
@@ -126,7 +171,7 @@ mod tests {
         let (groups, tasks) = list_trash(&c, Some(admin)).unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(tasks.len(), 1);
-        assert!(restore_group(&c, Some(admin), g.id).unwrap());
+        assert!(restore_group(&c, Some(admin), g.id).unwrap().is_some());
         assert_eq!(list_groups(&c, Some(admin)).unwrap().len(), 2);
         assert_eq!(list_tasks(&c, Some(admin), Some(g.id)).unwrap().len(), 1);
 
@@ -142,5 +187,33 @@ mod tests {
         let (groups, tasks) = list_trash(&c, Some(admin)).unwrap();
         assert!(groups.is_empty());
         assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn restore_group_name_conflict_renames() {
+        let (c, admin) = test_conn();
+        let g = create_group(&c, Some(admin), "项目").unwrap();
+        create_task(&c, Some(admin), g.id, "任务A", "", None).unwrap();
+        delete_group(&c, Some(admin), g.id).unwrap();
+
+        // 原名被新分组占用 → 恢复时自动重命名
+        create_group(&c, Some(admin), "项目").unwrap();
+        let out = restore_group(&c, Some(admin), g.id).unwrap().unwrap();
+        assert_eq!(out, Some("项目 (2)".to_string()));
+
+        let groups = list_groups(&c, Some(admin)).unwrap();
+        assert!(groups.iter().any(|x| x.name == "项目"));
+        let restored = groups.iter().find(|x| x.name == "项目 (2)").unwrap();
+        // 组内任务随分组一起恢复
+        assert_eq!(list_tasks(&c, Some(admin), Some(restored.id)).unwrap().len(), 1);
+
+        // 无冲突时原名恢复
+        let g2 = create_group(&c, Some(admin), "空组").unwrap();
+        delete_group(&c, Some(admin), g2.id).unwrap();
+        assert_eq!(restore_group(&c, Some(admin), g2.id).unwrap().unwrap(), None);
+
+        // 不存在 / 非回收站项
+        assert!(restore_group(&c, Some(admin), 999).unwrap().is_none());
+        assert!(restore_group(&c, Some(admin), restored.id).unwrap().is_none());
     }
 }

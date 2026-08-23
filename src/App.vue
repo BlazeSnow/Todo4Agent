@@ -350,8 +350,8 @@ async function onRestoreTrash(kind: 'group' | 'task', id: number) {
       notify('已恢复任务')
       await loadTasks()
     } else {
-      await restoreGroup(id)
-      notify('已恢复分组及其任务')
+      const r = await restoreGroup(id)
+      notify(r.renamed_to ? `原名被占用，已恢复并重命名为：${r.renamed_to}` : '已恢复分组及其任务')
       await loadGroups()
     }
     await loadTrash()

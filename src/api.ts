@@ -138,8 +138,9 @@ export function purgeTask(id: number): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(`/tasks/${id}/purge`, { method: 'DELETE' })
 }
 
-export function restoreGroup(id: number): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>(`/groups/${id}/restore`, { method: 'POST' })
+/** 恢复分组；原名被现有分组占用时会自动重命名，renamed_to 为新名字 */
+export function restoreGroup(id: number): Promise<{ ok: boolean; renamed_to?: string }> {
+  return request(`/groups/${id}/restore`, { method: 'POST' })
 }
 
 export function purgeGroup(id: number): Promise<{ ok: boolean }> {

@@ -65,8 +65,10 @@ pub async fn restore_group(
 ) -> ApiResult {
     let c = st.db.lock().unwrap();
     match db::restore_group(&c, cur.0, id) {
-        Ok(true) => ok_json(json!({ "ok": true })),
-        Ok(false) => err(StatusCode::NOT_FOUND, "分组不在回收站"),
+        Ok(None) => err(StatusCode::NOT_FOUND, "分组不在回收站"),
+        // 原名被占用时自动重命名，renamed_to 告知前端新名字
+        Ok(Some(None)) => ok_json(json!({ "ok": true })),
+        Ok(Some(Some(new_name))) => ok_json(json!({ "ok": true, "renamed_to": new_name })),
         Err(e) => internal(e),
     }
 }
