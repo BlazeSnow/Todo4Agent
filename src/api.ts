@@ -190,6 +190,11 @@ export function updateSettings(input: {
   })
 }
 
+/** 在系统文件管理器中打开数据库文件位置（后端执行），返回文件路径 */
+export function openDbLocation(): Promise<{ ok: boolean; path: string }> {
+  return request<{ ok: boolean; path: string }>('/settings/db-location', { method: 'POST' })
+}
+
 /** 导出 JSON 并触发浏览器下载 */
 export function downloadExport(doc: ExportDoc): void {
   const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' })

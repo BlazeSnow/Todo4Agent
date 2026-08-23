@@ -6,13 +6,14 @@ import {
   exportDoc,
   getSettings,
   importDoc,
+  openDbLocation,
   updateSettings,
 } from '../api'
 import type { ExportDoc } from '../types'
 import packageJson from '../../package.json'
 
 const props = defineProps<{
-  /** 当前登录用户名（本地模式为 null） */
+  /** 当前登录用户名 */
   currentUser: string | null
 }>()
 
@@ -129,6 +130,7 @@ onMounted(async () => {
     portInput.value = String(s.port)
     webuiLan.value = s.webui_lan
     allowRegister.value = s.allow_register
+    dbPath.value = s.db_path
   } catch (e) {
     emit('error', (e as Error).message)
   }
@@ -144,6 +146,25 @@ async function savePort() {
     emit('error', (e as Error).message)
   } finally {
     savingPort.value = false
+  }
+}
+
+// ---------- 数据库文件 ----------
+
+const dbPath = ref('')
+const openingDb = ref(false)
+
+/** 在系统文件管理器中定位数据库文件（后端执行） */
+async function onOpenDbLocation() {
+  openingDb.value = true
+  try {
+    const r = await openDbLocation()
+    dbPath.value = r.path
+    emit('notify', '已在系统文件管理器中定位数据库文件')
+  } catch (e) {
+    emit('error', (e as Error).message)
+  } finally {
+    openingDb.value = false
   }
 }
 
@@ -228,7 +249,7 @@ async function changePassword() {
         </p>
         <div class="d-flex align-center mb-3">
           <v-icon icon="mdi-account-circle" class="mr-2" color="primary" />
-          <span class="text-body-1">当前用户：{{ currentUser ?? '未登录（本地模式）' }}</span>
+          <span class="text-body-1">当前用户：{{ currentUser ?? '未登录' }}</span>
           <v-spacer />
           <v-btn
             v-if="currentUser"
@@ -275,6 +296,19 @@ async function changePassword() {
     <v-card variant="outlined" class="mb-4">
       <v-card-title>数据</v-card-title>
       <v-card-text>
+        <div v-if="dbPath" class="d-flex align-center ga-3 mb-4">
+          <div class="text-body-2 flex-grow-1 db-path">
+            数据库文件：<span class="font-mono text-medium-emphasis">{{ dbPath }}</span>
+          </div>
+          <v-btn
+            variant="tonal"
+            prepend-icon="mdi-folder-open-outline"
+            :loading="openingDb"
+            @click="onOpenDbLocation"
+          >
+            打开数据库文件位置
+          </v-btn>
+        </div>
         <div class="d-flex align-center ga-3">
           <v-btn
             color="primary"
@@ -323,3 +357,11 @@ async function changePassword() {
     </v-card>
   </div>
 </template>
+
+<style scoped>
+/* 数据库路径可能较长，允许在任意字符处换行 */
+.db-path {
+  min-width: 0;
+  word-break: break-all;
+}
+</style>

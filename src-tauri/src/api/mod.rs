@@ -116,6 +116,7 @@ fn api_router(state: SharedState) -> Router {
         .route("/export", get(export_json))
         .route("/import", post(import_json))
         .route("/settings", get(get_settings).patch(update_settings))
+        .route("/settings/db-location", post(open_db_location))
         .route("/auth/status", get(auth_status))
         .route("/auth/login", post(auth_login))
         .route("/auth/register", post(auth_register))

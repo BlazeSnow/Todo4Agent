@@ -69,6 +69,8 @@ export interface SettingsInfo {
   webui_lan: boolean
   /** 是否允许注册新账号 */
   allow_register: boolean
+  /** 数据库文件路径 */
+  db_path: string
 }
 
 /** 导入结果统计 */
