@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  检查项目版本文件与 package.json 一致后，按 baseVersion 创建并推送 git tag，触发 GitHub Actions 发布。
+  检查项目版本文件与 package.json 一致、开发者也已手动更新版本后，创建并推送 git tag 发布。
 
 .DESCRIPTION
   仓库的 Release 工作流在推送 v* 格式的 tag 时自动打包并创建 Release（vX.Y.Z-beta.N
@@ -9,21 +9,20 @@
     1. 检查项目版本文件是否符合 package.json（tauri.conf.json / Cargo.toml / Cargo.lock 的
        version 必须一致，wix.version 必须等于 msiVersion，version 必须符合 baseVersion 基线）；
        检查不通过则拒绝继续，提示先运行 version.ps1 同步。
-    2. 缺省时读取 package.json 的 baseVersion（如 v1.0.0），询问发布类型：
-       - 输入 y：正式版，tag = baseVersion 原样
-       - 其他任意键：测试版，自动叠加 beta 序号（取本地与远程已存在同线 tag 的最大序号 +1）
-    3. 确认后创建并推送 tag。本脚本不修改任何版本文件。
-  也可以用 -Tag 显式指定版本号（跳过一致性检查）。
+    2. 提示开发者确认已手动修改本次发布版本（version / msiVersion）——tag.ps1 不做任何推断
+       和修改，tag 就是 v + package.json 的 version。
+    3. 检查本地与远程均不存在该 tag，确认后创建并推送。
+  也可以用 -Tag 显式指定版本号（跳过一致性检查与版本确认）。
 
 .PARAMETER Tag
   要打的版本号，格式 vX.Y.Z 或 vX.Y.Z-beta.N，例如 v1.5.0、v1.5.0-beta.2。
-  缺省时按 baseVersion 交互生成。
+  缺省时使用 v + package.json 的 version。
 
 .PARAMETER NoPush
   只创建 tag，不推送到远程（不会触发任何工作流）。
 
 .EXAMPLE
-  .\tag.ps1                       # 检查一致性后按 baseVersion 交互发布（y=正式版，其他=自动 beta）
+  .\tag.ps1                       # 检查一致性并确认版本后打 tag（v + package.json.version）
   .\tag.ps1 -Tag v1.5.0           # 显式指定版本号（跳过检查）
   .\tag.ps1 -NoPush               # 只创建本地 tag
 #>
@@ -88,29 +87,18 @@ try {
         Write-Host '已用 -Tag 显式指定版本，跳过版本一致性检查。'
     }
 
-    # 2. 确定版本号：优先用 -Tag，否则按 baseVersion 交互生成
+    # 2. 确定版本号：优先用 -Tag，否则 v + package.json 的 version（不做推断）
     if (-not $Tag) {
-        $choice = Read-Host "发布类型：输入 y 发布正式版（$base）；其他任意键发布测试版（自动叠加 beta 序号）"
-        if ($choice -eq 'y' -or $choice -eq 'Y') {
-            $Tag = $base
-        }
-        else {
-            # 自动 beta 序号：本地与远程已存在同线 tag 的最大序号 +1
-            $tags = @()
-            $tags += git tag --list "$base-beta.*" 2>$null
-            if ($LASTEXITCODE -ne 0) { throw 'git tag --list 执行失败' }
-            git ls-remote --tags origin "$base-beta.*" 2>$null | ForEach-Object {
-                $tags += ($_ -split '\s+')[1]
-            }
-            $maxN = 0
-            foreach ($t in $tags) {
-                if ($t -match "^$([regex]::Escape($base))-beta\.(\d+)$") {
-                    $n = [int]$Matches[1]
-                    if ($n -gt $maxN) { $maxN = $n }
-                }
-            }
-            $Tag = "$base-beta.$($maxN + 1)"
-            Write-Host "测试版：自动叠加 beta 序号 → $Tag"
+        $Tag = 'v' + $pkg.version
+        Write-Host ''
+        Write-Host '当前版本配置：'
+        Write-Host "  baseVersion : $base（目标版本线）"
+        Write-Host "  version     : $($pkg.version)（本次将发布的版本）"
+        Write-Host "  msiVersion  : $($pkg.msiVersion)"
+        $confirm = Read-Host "请确认已手动修改 version / msiVersion 为本次发布的值？输入 y 继续（将打 tag $Tag），其他任意键取消"
+        if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+            Write-Host '已取消。请先在 package.json 中手动修改 version / msiVersion，运行 version.ps1 同步后再执行本脚本。'
+            return
         }
     }
 
@@ -131,6 +119,7 @@ try {
     if (git ls-remote --tags origin $Tag) {
         throw "远程已存在 tag：$Tag"
     }
+    Write-Host "tag 不存在，可发布：$Tag"
 
     # 4. 打印将要执行的操作，要求输入 y 确认
     $currentBranch = git rev-parse --abbrev-ref HEAD
