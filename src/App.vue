@@ -20,6 +20,7 @@ import {
   deleteGroup,
   deleteTask,
   emptyTrash,
+  getSettings,
   listGroups,
   listTasks,
   listTrash,
@@ -31,6 +32,7 @@ import {
   restoreGroup,
   restoreTask,
   setToken,
+  updateSettings,
   updateTask,
 } from './api'
 import type { Group, Task, TaskInput } from './types'
@@ -169,10 +171,37 @@ async function refresh() {
 
 const authReady = computed(() => authState.value !== 'loading')
 
+// ---------- 任务清单锁定（开启后 Agent 无法通过 MCP 编辑，界面编辑不受影响） ----------
+
+const tasksLocked = ref(false)
+
+async function loadLockState() {
+  try {
+    const s = await getSettings()
+    tasksLocked.value = s.tasks_locked
+  } catch {
+    // 状态加载失败不阻塞主界面，切换时再提示
+  }
+}
+
+async function toggleTasksLock() {
+  try {
+    const s = await updateSettings({ tasks_locked: !tasksLocked.value })
+    tasksLocked.value = s.tasks_locked
+    notify(
+      tasksLocked.value
+        ? '已锁定任务清单：Agent 无法编辑，读取不受影响'
+        : '已解锁任务清单：Agent 可编辑',
+    )
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
 onMounted(async () => {
   await initAuth()
   if (authState.value !== 'guest') {
-    await loadGroups()
+    await Promise.all([loadGroups(), loadLockState()])
   }
 })
 
@@ -401,6 +430,12 @@ function onGlobalContextMenu(e: MouseEvent) {
         action: openCreateTask,
       },
       { label: '刷新', icon: 'mdi-refresh', action: () => refresh() },
+      { divider: true },
+      {
+        label: tasksLocked.value ? '解锁任务清单' : '锁定任务清单',
+        icon: tasksLocked.value ? 'mdi-lock-open' : 'mdi-lock',
+        action: toggleTasksLock,
+      },
     ],
   }
 }
@@ -472,11 +507,13 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           :tasks="tasks"
           :loading="loadingTasks"
           :group-name="selectedGroup?.name ?? null"
+          :locked="tasksLocked"
           @create="openCreateTask"
           @edit="openEditTask"
           @toggle="onToggleTask"
           @remove="onDeleteTask"
           @reorder="onReorderTasks"
+          @toggle-lock="toggleTasksLock"
         />
         <SettingsView
           v-else-if="currentView === 'settings'"

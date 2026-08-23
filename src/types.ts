@@ -73,6 +73,8 @@ export interface SettingsInfo {
   allow_register: boolean
   /** 数据库文件路径 */
   db_path: string
+  /** 任务清单是否已锁定（当前用户；锁定后 Agent 无法通过 MCP 编辑） */
+  tasks_locked: boolean
 }
 
 /** 导入结果统计 */

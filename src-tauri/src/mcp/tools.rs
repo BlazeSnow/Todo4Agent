@@ -30,6 +30,18 @@ fn arg_opt_i64(args: &Value, key: &str) -> Result<Option<i64>, String> {
 
 use crate::db;
 
+/// 任务清单写操作：任务清单锁定时被拒绝（列表/导出等读取不受影响，界面编辑不受影响）
+const TASK_WRITE_TOOLS: &[&str] = &[
+    "group_create",
+    "group_rename",
+    "group_delete",
+    "task_create",
+    "task_update",
+    "task_complete",
+    "task_delete",
+    "task_import",
+];
+
 pub(super) struct ToolDef {
     pub name: &'static str,
     pub description: &'static str,
@@ -204,6 +216,20 @@ pub(super) fn tools() -> Vec<ToolDef> {
 
 pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i64, id: &Value) {
     let db_err = |e: rusqlite::Error| tool_error(id, format!("数据库错误: {e}"));
+
+    // 任务清单锁定：拒绝写操作，读取类工具照常
+    if TASK_WRITE_TOOLS.contains(&name) {
+        match db::tasks_locked(conn, user_id) {
+            Ok(true) => {
+                return tool_error(
+                    id,
+                    "任务清单已锁定，Agent 无法编辑（列表、导出等读取不受影响；请让用户在界面右键菜单解锁）".into(),
+                )
+            }
+            Ok(false) => {}
+            Err(e) => return db_err(e),
+        }
+    }
 
     match name {
         "app_version" => tool_result(
@@ -480,5 +506,18 @@ mod tests {
         assert!(names.contains(&"user_password"));
         assert!(names.contains(&"prompt_get"));
         assert!(names.contains(&"prompt_update"));
+    }
+
+    #[test]
+    fn task_write_tools_are_known_tools() {
+        let names: Vec<&str> = tools().iter().map(|t| t.name).collect();
+        // 锁定拦截清单里的每个名字都必须是已定义工具
+        for n in TASK_WRITE_TOOLS {
+            assert!(names.contains(n), "TASK_WRITE_TOOLS 含未定义工具: {n}");
+        }
+        // 读取类工具不在拦截清单中
+        for read in ["group_list", "task_list", "task_export", "app_version", "prompt_get"] {
+            assert!(!TASK_WRITE_TOOLS.contains(&read));
+        }
     }
 }

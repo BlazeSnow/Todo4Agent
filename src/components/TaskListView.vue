@@ -8,6 +8,8 @@ const props = defineProps<{
   loading: boolean
   /** 当前分组名（未选择时为 null） */
   groupName: string | null
+  /** 任务清单是否已锁定（Agent 无法通过 MCP 编辑，界面编辑不受影响） */
+  locked: boolean
 }>()
 
 const emit = defineEmits<{
@@ -16,6 +18,7 @@ const emit = defineEmits<{
   (e: 'toggle', task: Task): void
   (e: 'remove', task: Task): void
   (e: 'reorder', taskIds: number[]): void
+  (e: 'toggle-lock'): void
 }>()
 
 // ---------- 排序 ----------
@@ -113,6 +116,12 @@ function openTaskCtx(task: Task, e: MouseEvent) {
         icon: 'mdi-delete',
         color: 'error',
         action: () => emit('remove', task),
+      },
+      { divider: true },
+      {
+        label: props.locked ? '解锁任务清单' : '锁定任务清单',
+        icon: props.locked ? 'mdi-lock-open' : 'mdi-lock',
+        action: () => emit('toggle-lock'),
       },
     ],
   }
@@ -226,6 +235,13 @@ function overdue(task: Task): boolean {
               title="删除"
               color="error"
               @click="$emit('remove', task)"
+            />
+            <v-divider />
+            <v-list-item
+              :prepend-icon="locked ? 'mdi-lock-open' : 'mdi-lock'"
+              :title="locked ? '解锁任务清单' : '锁定任务清单'"
+              :subtitle="locked ? 'Agent 当前无法编辑' : '锁定后 Agent 无法编辑'"
+              @click="$emit('toggle-lock')"
             />
           </v-list>
         </v-menu>

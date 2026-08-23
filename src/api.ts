@@ -199,6 +199,7 @@ export function updateSettings(input: {
   port?: number
   webui_lan?: boolean
   allow_register?: boolean
+  tasks_locked?: boolean
 }): Promise<SettingsInfo> {
   return request<SettingsInfo>('/settings', {
     method: 'PATCH',

@@ -147,6 +147,12 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
             content    TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id INTEGER NOT NULL,
+            key     TEXT NOT NULL,
+            value   TEXT NOT NULL,
+            PRIMARY KEY (user_id, key)
+        );
         "#,
     )?;
     ensure_task_sort_column(&conn)?;
@@ -339,6 +345,7 @@ pub mod sessions;
 pub mod settings;
 pub mod tasks;
 pub mod trash;
+pub mod user_settings;
 pub mod users;
 
 pub use export::*;
@@ -348,6 +355,7 @@ pub use sessions::*;
 pub use settings::*;
 pub use tasks::*;
 pub use trash::*;
+pub use user_settings::*;
 pub use users::*;
 
 #[cfg(test)]

@@ -199,6 +199,9 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
 
 约定：
 
+- 任务清单锁定（user_settings 表 tasks_locked，按用户）：开启后 MCP 的写操作（分组/任务增删改、
+  导入，见 `mcp/tools.rs` 的 `TASK_WRITE_TOOLS`）被拒绝，读取类工具与界面编辑不受影响；
+  界面在任务卡片 ⋮ 菜单 / 右键菜单切换（走 `PATCH /api/settings` 的 `tasks_locked`）。
 - MCP Server 与桌面端访问同一个 SQLite 数据库文件，写入后界面应能立即反映变化（界面刷新按钮会重载任务列表）。
 - 新增工具需同步更新使用说明（README 或 docs）。
 - 所有工具必须返回结构化 JSON，错误信息要能让 Agent 直接理解并处理。
