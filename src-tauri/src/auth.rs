@@ -158,6 +158,15 @@ impl Sessions {
         let _ = crate::db::delete_session(conn, token);
         self.tokens.lock().unwrap().remove(token);
     }
+
+    /// 撤销某用户全部会话（修改密码后踢出其他登录）；keep 指定 token 保留
+    pub fn revoke_for_user(&self, conn: &Connection, user_id: i64, keep: Option<&str>) {
+        let _ = crate::db::delete_user_sessions(conn, user_id, keep);
+        self.tokens
+            .lock()
+            .unwrap()
+            .retain(|t, uid| *uid != user_id || Some(t.as_str()) == keep);
+    }
 }
 
 pub fn new_salt() -> String {
@@ -275,6 +284,37 @@ mod tests {
         s3.load_from_db(&conn);
         assert_eq!(s3.user_id(&t1), None);
         assert_eq!(s3.user_id(&t2), Some(2));
+    }
+
+    #[test]
+    fn revoke_for_user_keeps_current() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);",
+        )
+        .unwrap();
+
+        let s = Sessions::default();
+        let t1 = s.issue(&conn, 1);
+        let t2 = s.issue(&conn, 1);
+        let t3 = s.issue(&conn, 2);
+
+        // 改密后：用户 1 仅保留当前 token，用户 2 不受影响
+        s.revoke_for_user(&conn, 1, Some(&t1));
+        assert_eq!(s.user_id(&t1), Some(1));
+        assert_eq!(s.user_id(&t2), None);
+        assert_eq!(s.user_id(&t3), Some(2));
+
+        // 数据库同步删除：重启后状态一致
+        let s2 = Sessions::default();
+        s2.load_from_db(&conn);
+        assert_eq!(s2.user_id(&t1), Some(1));
+        assert_eq!(s2.user_id(&t2), None);
+        assert_eq!(s2.user_id(&t3), Some(2));
+
+        // keep=None 时全部吊销
+        s.revoke_for_user(&conn, 1, None);
+        assert_eq!(s.user_id(&t1), None);
     }
 
     #[test]

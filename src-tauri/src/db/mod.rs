@@ -295,6 +295,18 @@ pub fn delete_session(conn: &Connection, token: &str) -> SqlResult<()> {
     Ok(())
 }
 
+/// 删除某用户全部会话；keep 指定的 token 保留（改密后保留当前登录）
+pub fn delete_user_sessions(conn: &Connection, user_id: i64, keep: Option<&str>) -> SqlResult<()> {
+    match keep {
+        Some(t) => conn.execute(
+            "DELETE FROM sessions WHERE user_id = ?1 AND token != ?2",
+            params![user_id, t],
+        ),
+        None => conn.execute("DELETE FROM sessions WHERE user_id = ?1", params![user_id]),
+    }?;
+    Ok(())
+}
+
 
 // ---------- 用户 ----------
 

@@ -104,10 +104,11 @@ pub struct PasswordInput {
     new_password: String,
 }
 
-/// 修改当前用户密码
+/// 修改当前用户密码；成功后吊销该用户的其他会话（当前登录保留）
 pub async fn auth_password(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
+    headers: HeaderMap,
     Json(body): Json<PasswordInput>,
 ) -> ApiResult {
     let Some(uid) = cur.0 else {
@@ -118,7 +119,11 @@ pub async fn auth_password(
     }
     let c = st.db.lock().unwrap();
     match db::change_user_password(&c, uid, &body.old_password, &body.new_password) {
-        Ok(true) => ok_json(json!({ "ok": true })),
+        Ok(true) => {
+            let keep = bearer_token(&headers).map(String::from);
+            st.sessions.revoke_for_user(&c, uid, keep.as_deref());
+            ok_json(json!({ "ok": true }))
+        }
         Ok(false) => err(StatusCode::BAD_REQUEST, "原密码错误"),
         Err(e) => internal(e),
     }
