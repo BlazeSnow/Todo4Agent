@@ -114,7 +114,8 @@ CREATE TABLE groups (
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   deleted_at TEXT,          -- 非空表示已入回收站
-  user_id    INTEGER        -- 所属用户；旧本地模式库由播种的 admin 接管 NULL 行
+  user_id    INTEGER,       -- 所属用户；旧本地模式库由播种的 admin 接管 NULL 行
+  locked     INTEGER NOT NULL DEFAULT 0  -- 清单锁定：锁定后 Agent 无法编辑该清单
 );
 
 -- 分组名唯一性按用户生效，且不含回收站中的分组（软删除不占名）
@@ -199,9 +200,9 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
 
 约定：
 
-- 任务清单锁定（user_settings 表 tasks_locked，按用户）：开启后 MCP 的写操作（分组/任务增删改、
-  导入，见 `mcp/tools.rs` 的 `TASK_WRITE_TOOLS`）被拒绝，读取类工具与界面编辑不受影响；
-  界面在任务卡片 ⋮ 菜单 / 右键菜单切换（走 `PATCH /api/settings` 的 `tasks_locked`）。
+- 清单锁定（groups.locked 列，按分组）：锁定分组的 MCP 写操作被拒绝（该组任务的增删改、
+  移入该组、改名/删除该组、导入文档含同名分组），读取与界面编辑不受影响；界面在侧边栏
+  分组 ⋮ 菜单 / 右键菜单切换（`PATCH /api/groups/{id}` 的 `locked`）。
 - MCP Server 与桌面端访问同一个 SQLite 数据库文件，写入后界面应能立即反映变化（界面刷新按钮会重载任务列表）。
 - 新增工具需同步更新使用说明（README 或 docs）。
 - 所有工具必须返回结构化 JSON，错误信息要能让 Agent 直接理解并处理。

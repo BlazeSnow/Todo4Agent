@@ -22,7 +22,45 @@ pub fn create_group(conn: &Connection, user_id: i64, name: &str) -> SqlResult<Gr
         sort_order: 0,
         created_at,
         deleted_at: None,
+        locked: false,
     })
+}
+
+/// 获取单个分组；不存在、已删除或不属于该用户返回 Ok(None)
+pub fn get_group(conn: &Connection, user_id: i64, id: i64) -> SqlResult<Option<Group>> {
+    conn.query_row(
+        &format!("SELECT {GROUP_COLS} FROM groups WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL"),
+        params![id, user_id],
+        group_from_row,
+    )
+    .optional()
+}
+
+/// 分组锁定状态：返回 (名称, 是否锁定)；不存在、已删除或不属于该用户返回 Ok(None)
+pub fn group_lock_info(conn: &Connection, user_id: i64, group_id: i64) -> SqlResult<Option<(String, bool)>> {
+    conn.query_row(
+        "SELECT name, locked FROM groups WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL",
+        params![group_id, user_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+}
+
+/// 设置分组锁定；分组不存在、已删除或不属于该用户返回 Ok(false)
+pub fn set_group_locked(conn: &Connection, user_id: i64, group_id: i64, locked: bool) -> SqlResult<bool> {
+    let n = conn.execute(
+        "UPDATE groups SET locked = ?1 WHERE id = ?2 AND user_id = ?3 AND deleted_at IS NULL",
+        params![locked, group_id, user_id],
+    )?;
+    Ok(n > 0)
+}
+
+/// 该用户所有已锁定分组的名称（导入前冲突检查用）
+pub fn locked_group_names(conn: &Connection, user_id: i64) -> SqlResult<Vec<String>> {
+    let mut stmt =
+        conn.prepare("SELECT name FROM groups WHERE user_id = ?1 AND locked = 1 AND deleted_at IS NULL")?;
+    let rows = stmt.query_map(params![user_id], |row| row.get(0))?;
+    rows.collect()
 }
 
 /// 分组是否属于该用户
@@ -150,5 +188,38 @@ mod tests {
         // 同一用户的活动分组仍然不能重名
         let dup = create_group(&c, admin, "项目").unwrap_err();
         assert!(is_unique_violation(&dup));
+    }
+
+    #[test]
+    fn group_lock_roundtrip_and_isolation() {
+        let (c, admin) = test_conn();
+        let other = create_user(&c, "frank", "pass1234").unwrap();
+        let g = create_group(&c, admin, "私人清单").unwrap();
+
+        // 默认未锁定；锁定后 list/get/lock_info 均可见
+        assert!(!g.locked);
+        assert_eq!(group_lock_info(&c, admin, g.id).unwrap(), Some(("私人清单".into(), false)));
+        set_group_locked(&c, admin, g.id, true).unwrap();
+        let groups = list_groups(&c, admin).unwrap();
+        assert!(groups.iter().any(|x| x.id == g.id && x.locked));
+        assert_eq!(group_lock_info(&c, admin, g.id).unwrap(), Some(("私人清单".into(), true)));
+        assert_eq!(get_group(&c, admin, g.id).unwrap().unwrap().locked, true);
+
+        // 其他用户查不到（不存在语义），也改不了
+        assert!(group_lock_info(&c, other.id, g.id).unwrap().is_none());
+        assert!(!set_group_locked(&c, other.id, g.id, false).unwrap());
+
+        // 解锁恢复；locked_group_names 只含锁定的
+        set_group_locked(&c, admin, g.id, false).unwrap();
+        assert!(locked_group_names(&c, admin).unwrap().is_empty());
+        set_group_locked(&c, admin, g.id, true).unwrap();
+        assert_eq!(locked_group_names(&c, admin).unwrap(), vec!["私人清单".to_string()]);
+
+        // 任务所在分组的锁定信息（供 MCP 拦截）
+        let t = create_task(&c, admin, g.id, "清单内任务", "", None).unwrap();
+        let (_, name, locked) = task_group_lock(&c, admin, t.id).unwrap().unwrap();
+        assert_eq!(name, "私人清单");
+        assert!(locked);
+        assert!(task_group_lock(&c, admin, 999).unwrap().is_none());
     }
 }

@@ -40,18 +40,14 @@ pub async fn import_json(
 
 // ---------- 设置 ----------
 
-pub async fn get_settings(
-    State(st): State<SharedState>,
-    Extension(cur): Extension<CurrentUser>,
-) -> ApiResult {
+pub async fn get_settings(State(st): State<SharedState>) -> ApiResult {
     let c = st.db.lock().unwrap();
     ok_json(json!({
         "port": db::get_port_setting(&c).unwrap_or(db::DEFAULT_PORT),
         "effective_port": st.effective_port,
         "webui_lan": db::get_webui_lan(&c).unwrap_or(true),
         "allow_register": db::get_allow_register(&c).unwrap_or(true),
-        "db_path": db::db_path().display().to_string(),
-        "tasks_locked": db::tasks_locked(&c, cur.0).unwrap_or(false)
+        "db_path": db::db_path().display().to_string()
     }))
 }
 
@@ -93,14 +89,11 @@ pub struct SettingsInput {
     port: Option<u16>,
     webui_lan: Option<bool>,
     allow_register: Option<bool>,
-    /// 任务清单锁定：开启后 Agent 无法通过 MCP 修改任务数据（当前用户）
-    tasks_locked: Option<bool>,
 }
 
 /// 保存服务设置：只更新传入的字段（webui_lan 与 port 重启后生效，其余立即生效）
 pub async fn update_settings(
     State(st): State<SharedState>,
-    Extension(cur): Extension<CurrentUser>,
     Json(body): Json<SettingsInput>,
 ) -> ApiResult {
     if let Some(p) = body.port {
@@ -126,15 +119,9 @@ pub async fn update_settings(
             return internal(e);
         }
     }
-    if let Some(v) = body.tasks_locked {
-        if let Err(e) = db::set_tasks_locked(&c, cur.0, v) {
-            return internal(e);
-        }
-    }
     ok_json(json!({
         "port": db::get_port_setting(&c).unwrap_or(db::DEFAULT_PORT),
         "webui_lan": db::get_webui_lan(&c).unwrap_or(true),
-        "allow_register": db::get_allow_register(&c).unwrap_or(true),
-        "tasks_locked": db::tasks_locked(&c, cur.0).unwrap_or(false)
+        "allow_register": db::get_allow_register(&c).unwrap_or(true)
     }))
 }

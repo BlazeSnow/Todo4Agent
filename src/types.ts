@@ -6,6 +6,8 @@ export interface Group {
   created_at: string
   /** 回收站标记：非 null 表示已删除 */
   deleted_at: string | null
+  /** 清单锁定：锁定后 Agent 无法通过 MCP 编辑该清单，界面编辑不受影响 */
+  locked: boolean
 }
 
 /** 任务状态 */
@@ -73,8 +75,6 @@ export interface SettingsInfo {
   allow_register: boolean
   /** 数据库文件路径 */
   db_path: string
-  /** 任务清单是否已锁定（当前用户；锁定后 Agent 无法通过 MCP 编辑） */
-  tasks_locked: boolean
 }
 
 /** 导入结果统计 */

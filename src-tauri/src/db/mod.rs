@@ -24,6 +24,8 @@ pub struct Group {
     pub created_at: String,
     /// 回收站标记：非 null 表示已删除（软删除）
     pub deleted_at: Option<String>,
+    /// 清单锁定：锁定后 Agent 无法通过 MCP 编辑该清单（界面编辑不受影响）
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,7 +113,8 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
             sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             deleted_at TEXT,
-            user_id    INTEGER
+            user_id    INTEGER,
+            locked     INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS users (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,18 +150,13 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
             content    TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS user_settings (
-            user_id INTEGER NOT NULL,
-            key     TEXT NOT NULL,
-            value   TEXT NOT NULL,
-            PRIMARY KEY (user_id, key)
-        );
         "#,
     )?;
     ensure_task_sort_column(&conn)?;
     ensure_deleted_columns(&conn)?;
     ensure_group_user_column(&conn)?;
     ensure_user_default_password_column(&conn)?;
+    ensure_group_locked_column(&conn)?;
     ensure_group_name_scoped(&conn)?;
     seed_default_admin(&conn)?;
     Ok(conn)
@@ -209,6 +207,21 @@ fn ensure_group_user_column(conn: &Connection) -> SqlResult<()> {
     }
     Ok(())
 }
+
+/// 为旧数据库迁移 groups.locked 列（清单锁定：锁定后 Agent 无法编辑该清单）
+fn ensure_group_locked_column(conn: &Connection) -> SqlResult<()> {
+    let has: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('groups') WHERE name = 'locked'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|n| n > 0)?;
+    if !has {
+        conn.execute(
+            "ALTER TABLE groups ADD COLUMN locked INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    Ok(())
+}
 /// 为旧数据库迁移 users.default_password 列（初始密码标记）
 fn ensure_user_default_password_column(conn: &Connection) -> SqlResult<()> {
     let has: bool = conn
@@ -246,10 +259,11 @@ fn ensure_group_name_scoped(conn: &Connection) -> SqlResult<()> {
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 deleted_at TEXT,
-                user_id    INTEGER
+                user_id    INTEGER,
+                locked     INTEGER NOT NULL DEFAULT 0
             );
-            INSERT INTO groups_migrate (id, name, sort_order, created_at, deleted_at, user_id)
-                SELECT id, name, sort_order, created_at, deleted_at, user_id FROM groups;
+            INSERT INTO groups_migrate (id, name, sort_order, created_at, deleted_at, user_id, locked)
+                SELECT id, name, sort_order, created_at, deleted_at, user_id, locked FROM groups;
             DROP TABLE groups;
             ALTER TABLE groups_migrate RENAME TO groups;
             COMMIT;
@@ -313,6 +327,7 @@ fn group_from_row(row: &rusqlite::Row<'_>) -> SqlResult<Group> {
         sort_order: row.get(2)?,
         created_at: row.get(3)?,
         deleted_at: row.get(4)?,
+        locked: row.get(5)?,
     })
 }
 
@@ -332,7 +347,7 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> SqlResult<Task> {
 }
 
 /// 分组查询的列顺序必须与 group_from_row 一致
-const GROUP_COLS: &str = "id, name, sort_order, created_at, deleted_at";
+const GROUP_COLS: &str = "id, name, sort_order, created_at, deleted_at, locked";
 /// 任务查询的列顺序必须与 task_from_row 一致
 const TASK_COLS: &str =
     "id, group_id, title, description, status, due_at, created_at, updated_at, sort_order, deleted_at";
@@ -345,7 +360,6 @@ pub mod sessions;
 pub mod settings;
 pub mod tasks;
 pub mod trash;
-pub mod user_settings;
 pub mod users;
 
 pub use export::*;
@@ -355,7 +369,6 @@ pub use sessions::*;
 pub use settings::*;
 pub use tasks::*;
 pub use trash::*;
-pub use user_settings::*;
 pub use users::*;
 
 #[cfg(test)]

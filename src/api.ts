@@ -91,6 +91,11 @@ export function renameGroup(id: number, name: string): Promise<Group> {
   return request<Group>(`/groups/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) })
 }
 
+/** 切换清单锁定：锁定后 Agent 无法通过 MCP 编辑该清单，界面编辑不受影响 */
+export function setGroupLocked(id: number, locked: boolean): Promise<Group> {
+  return request<Group>(`/groups/${id}`, { method: 'PATCH', body: JSON.stringify({ locked }) })
+}
+
 /** 按给定顺序重排全部分组 */
 export function reorderGroups(groupIds: number[]): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>('/groups/reorder', {
@@ -199,7 +204,6 @@ export function updateSettings(input: {
   port?: number
   webui_lan?: boolean
   allow_register?: boolean
-  tasks_locked?: boolean
 }): Promise<SettingsInfo> {
   return request<SettingsInfo>('/settings', {
     method: 'PATCH',

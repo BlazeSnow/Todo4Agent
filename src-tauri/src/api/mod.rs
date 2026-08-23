@@ -106,7 +106,7 @@ fn api_router(state: SharedState) -> Router {
     Router::new()
         .route("/groups", get(list_groups).post(create_group))
         .route("/groups/reorder", post(reorder_groups))
-        .route("/groups/{id}", patch(rename_group).delete(delete_group))
+        .route("/groups/{id}", patch(update_group).delete(delete_group))
         .route("/groups/{id}/restore", post(restore_group))
         .route("/groups/{id}/purge", delete(purge_group))
         .route("/tasks", get(list_tasks).post(create_task))

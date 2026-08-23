@@ -153,6 +153,23 @@ pub fn delete_task(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> 
     Ok(n > 0)
 }
 
+/// 任务所属分组的锁定信息：返回 (group_id, 分组名, 是否锁定)；
+/// 任务不存在、已删除或不属于该用户返回 Ok(None)（清单锁定的 MCP 拦截用）
+pub fn task_group_lock(
+    conn: &Connection,
+    user_id: i64,
+    task_id: i64,
+) -> SqlResult<Option<(i64, String, bool)>> {
+    conn.query_row(
+        "SELECT g.id, g.name, g.locked FROM tasks t
+         JOIN groups g ON g.id = t.group_id
+         WHERE t.id = ?1 AND t.deleted_at IS NULL AND g.user_id = ?2",
+        params![task_id, user_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .optional()
+}
+
 // ---------- 回收站 ----------
 
 /// 回收站内容：该用户已删除的分组与任务（按删除时间倒序）

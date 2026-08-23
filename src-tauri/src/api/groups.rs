@@ -44,21 +44,49 @@ pub async fn create_group(
     }
 }
 
-pub async fn rename_group(
+#[derive(Deserialize)]
+pub struct GroupUpdate {
+    name: Option<String>,
+    /// 清单锁定：锁定后 Agent 无法通过 MCP 编辑该清单，界面编辑不受影响
+    locked: Option<bool>,
+}
+
+/// 更新分组：重命名 / 切换锁定（只处理传入的字段）
+pub async fn update_group(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
     Path(id): Path<i64>,
-    Json(body): Json<GroupName>,
+    Json(body): Json<GroupUpdate>,
 ) -> ApiResult {
-    let name = body.name.trim();
-    if name.is_empty() {
-        return err(StatusCode::BAD_REQUEST, "分组名不能为空");
+    if let Some(name) = &body.name {
+        if name.trim().is_empty() {
+            return err(StatusCode::BAD_REQUEST, "分组名不能为空");
+        }
+    }
+    if body.name.is_none() && body.locked.is_none() {
+        return err(StatusCode::BAD_REQUEST, "没有需要更新的字段");
     }
     let c = st.db.lock().unwrap();
-    match db::rename_group(&c, cur.0, id, name) {
+    if let Some(name) = &body.name {
+        match db::rename_group(&c, cur.0, id, name.trim()) {
+            Ok(Some(_)) => {}
+            Ok(None) => return err(StatusCode::NOT_FOUND, "分组不存在"),
+            Err(e) if db::is_unique_violation(&e) => {
+                return err(StatusCode::CONFLICT, "分组名已存在")
+            }
+            Err(e) => return internal(e),
+        }
+    }
+    if let Some(locked) = body.locked {
+        match db::set_group_locked(&c, cur.0, id, locked) {
+            Ok(true) => {}
+            Ok(false) => return err(StatusCode::NOT_FOUND, "分组不存在"),
+            Err(e) => return internal(e),
+        }
+    }
+    match db::get_group(&c, cur.0, id) {
         Ok(Some(group)) => ok_json(json!(group)),
         Ok(None) => err(StatusCode::NOT_FOUND, "分组不存在"),
-        Err(e) if db::is_unique_violation(&e) => err(StatusCode::CONFLICT, "分组名已存在"),
         Err(e) => internal(e),
     }
 }

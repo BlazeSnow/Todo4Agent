@@ -16,6 +16,7 @@ const emit = defineEmits<{
   (e: 'create'): void
   (e: 'rename', group: Group): void
   (e: 'delete', group: Group): void
+  (e: 'toggle-lock', group: Group): void
   (e: 'mcp'): void
   (e: 'prompt'): void
   (e: 'settings'): void
@@ -67,6 +68,11 @@ function openGroupCtx(group: Group, e: MouseEvent) {
       },
       { divider: true },
       { label: '重命名', icon: 'mdi-pencil', action: () => emit('rename', group) },
+      {
+        label: group.locked ? '解锁清单' : '锁定清单',
+        icon: group.locked ? 'mdi-lock-open' : 'mdi-lock',
+        action: () => emit('toggle-lock', group),
+      },
       { label: '删除', icon: 'mdi-delete', color: 'error', action: () => emit('delete', group) },
     ],
   }
@@ -86,7 +92,7 @@ function openGroupCtx(group: Group, e: MouseEvent) {
       @contextmenu.stop="openGroupCtx(group, $event)"
     >
       <template #prepend>
-        <v-icon icon="mdi-folder" />
+        <v-icon :icon="group.locked ? 'mdi-folder-lock' : 'mdi-folder'" />
       </template>
       <template #append>
         <v-menu location="bottom right" :close-on-content-click="true">
@@ -117,6 +123,12 @@ function openGroupCtx(group: Group, e: MouseEvent) {
               prepend-icon="mdi-pencil"
               title="重命名"
               @click="$emit('rename', group)"
+            />
+            <v-list-item
+              :prepend-icon="group.locked ? 'mdi-lock-open' : 'mdi-lock'"
+              :title="group.locked ? '解锁清单' : '锁定清单'"
+              :subtitle="group.locked ? 'Agent 当前无法编辑' : '锁定后仅自己可编辑'"
+              @click="$emit('toggle-lock', group)"
             />
             <v-list-item
               prepend-icon="mdi-delete"

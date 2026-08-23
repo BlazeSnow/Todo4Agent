@@ -30,17 +30,28 @@ fn arg_opt_i64(args: &Value, key: &str) -> Result<Option<i64>, String> {
 
 use crate::db;
 
-/// 任务清单写操作：任务清单锁定时被拒绝（列表/导出等读取不受影响，界面编辑不受影响）
-const TASK_WRITE_TOOLS: &[&str] = &[
-    "group_create",
-    "group_rename",
-    "group_delete",
-    "task_create",
-    "task_update",
-    "task_complete",
-    "task_delete",
-    "task_import",
-];
+/// 清单（分组）锁定提示：锁定后 Agent 无法编辑该清单，界面编辑不受影响
+fn locked_err(name: &str) -> String {
+    format!("清单「{name}」已锁定，Agent 无法编辑（请让用户在界面侧边栏分组菜单解锁）")
+}
+
+/// 分组已锁定时输出错误并返回 true（调用方据此返回）
+fn group_locked(conn: &Connection, user_id: i64, group_id: i64, id: &Value) -> bool {
+    if let Ok(Some((name, true))) = db::group_lock_info(conn, user_id, group_id) {
+        tool_error(id, locked_err(&name));
+        return true;
+    }
+    false
+}
+
+/// 任务所在分组已锁定时输出错误并返回 true（调用方据此返回）
+fn task_locked(conn: &Connection, user_id: i64, task_id: i64, id: &Value) -> bool {
+    if let Ok(Some((_, name, true))) = db::task_group_lock(conn, user_id, task_id) {
+        tool_error(id, locked_err(&name));
+        return true;
+    }
+    false
+}
 
 pub(super) struct ToolDef {
     pub name: &'static str,
@@ -217,20 +228,6 @@ pub(super) fn tools() -> Vec<ToolDef> {
 pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i64, id: &Value) {
     let db_err = |e: rusqlite::Error| tool_error(id, format!("数据库错误: {e}"));
 
-    // 任务清单锁定：拒绝写操作，读取类工具照常
-    if TASK_WRITE_TOOLS.contains(&name) {
-        match db::tasks_locked(conn, user_id) {
-            Ok(true) => {
-                return tool_error(
-                    id,
-                    "任务清单已锁定，Agent 无法编辑（列表、导出等读取不受影响；请让用户在界面右键菜单解锁）".into(),
-                )
-            }
-            Ok(false) => {}
-            Err(e) => return db_err(e),
-        }
-    }
-
     match name {
         "app_version" => tool_result(
             id,
@@ -273,6 +270,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if group_locked(conn, user_id, gid, id) {
+                return;
+            }
             match db::rename_group(conn, user_id, gid, &name) {
                 Ok(Some(g)) => tool_result(id, json!(g).to_string()),
                 Ok(None) => tool_error(id, "分组不存在".into()),
@@ -286,6 +286,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if group_locked(conn, user_id, gid, id) {
+                return;
+            }
             match db::delete_group(conn, user_id, gid) {
                 Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
                 Ok(false) => tool_error(id, "分组不存在".into()),
@@ -309,6 +312,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if group_locked(conn, user_id, gid, id) {
+                return;
+            }
             let title = match arg_str(args, "title") {
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
@@ -334,6 +340,15 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if task_locked(conn, user_id, tid, id) {
+                return;
+            }
+            // 移入锁定清单同样拒绝
+            if let Some(target) = args.get("group_id").and_then(Value::as_i64) {
+                if group_locked(conn, user_id, target, id) {
+                    return;
+                }
+            }
             let mut patch = db::TaskUpdate::default();
             if let Some(v) = args.get("title") {
                 match v.as_str() {
@@ -377,6 +392,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if task_locked(conn, user_id, tid, id) {
+                return;
+            }
             let done = match args.get("done") {
                 Some(Value::Bool(b)) => *b,
                 _ => return tool_error(id, "参数错误: done 必填且必须是布尔值".into()),
@@ -397,6 +415,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            if task_locked(conn, user_id, tid, id) {
+                return;
+            }
             match db::delete_task(conn, user_id, tid) {
                 Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
                 Ok(false) => tool_error(id, "任务不存在".into()),
@@ -419,6 +440,27 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
             };
             if doc.groups.is_empty() {
                 return tool_error(id, "导入内容为空".into());
+            }
+            // 文档包含已锁定清单时整体拒绝（用户可在界面导入或先解锁）
+            let locked_names = match db::locked_group_names(conn, user_id) {
+                Ok(v) => v,
+                Err(e) => return db_err(e),
+            };
+            let conflicts: Vec<String> = doc
+                .groups
+                .iter()
+                .map(|g| g.name.trim())
+                .filter(|n| !n.is_empty() && locked_names.iter().any(|l| l == n))
+                .map(String::from)
+                .collect();
+            if !conflicts.is_empty() {
+                return tool_error(
+                    id,
+                    format!(
+                        "文档包含已锁定的清单：{}（请让用户在界面导入或先解锁）",
+                        conflicts.join("、")
+                    ),
+                );
             }
             match db::import_doc(conn, user_id, &doc) {
                 Ok(r) => tool_result(id, json!(r).to_string()),
@@ -506,18 +548,5 @@ mod tests {
         assert!(names.contains(&"user_password"));
         assert!(names.contains(&"prompt_get"));
         assert!(names.contains(&"prompt_update"));
-    }
-
-    #[test]
-    fn task_write_tools_are_known_tools() {
-        let names: Vec<&str> = tools().iter().map(|t| t.name).collect();
-        // 锁定拦截清单里的每个名字都必须是已定义工具
-        for n in TASK_WRITE_TOOLS {
-            assert!(names.contains(n), "TASK_WRITE_TOOLS 含未定义工具: {n}");
-        }
-        // 读取类工具不在拦截清单中
-        for read in ["group_list", "task_list", "task_export", "app_version", "prompt_get"] {
-            assert!(!TASK_WRITE_TOOLS.contains(&read));
-        }
     }
 }
