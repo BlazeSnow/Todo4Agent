@@ -13,11 +13,14 @@ const busy = ref(false)
 const errorMsg = ref('')
 /** 存在仍在使用默认密码的账户时提示初始凭据 */
 const showDefaultHint = ref(false)
+/** 服务端是否允许注册（关闭时隐藏注册按钮） */
+const allowRegister = ref(true)
 
 onMounted(async () => {
   try {
     const s = await authStatus()
     showDefaultHint.value = s.default_password === true
+    allowRegister.value = s.allow_register
   } catch {
     showDefaultHint.value = false
   }
@@ -94,7 +97,7 @@ async function doRegister() {
       </v-card-text>
       <v-card-actions class="px-6 pb-6">
         <v-spacer />
-        <v-btn variant="tonal" :loading="busy" @click="doRegister">注册</v-btn>
+        <v-btn v-if="allowRegister" variant="tonal" :loading="busy" @click="doRegister">注册</v-btn>
         <v-btn color="primary" :loading="busy" @click="doLogin">登录</v-btn>
       </v-card-actions>
     </v-card>

@@ -65,6 +65,10 @@ export interface SettingsInfo {
   port: number
   /** 当前实际监听的端口 */
   effective_port: number
+  /** 是否对外（0.0.0.0）开放 WebUI */
+  webui_lan: boolean
+  /** 是否允许注册新账号 */
+  allow_register: boolean
 }
 
 /** 导入结果统计 */
@@ -83,4 +87,6 @@ export interface AuthStatus {
   username: string | null
   /** 是否存在仍在使用初始默认密码的用户（登录页提示改密） */
   default_password: boolean
+  /** 是否允许注册新账号（关闭时登录页隐藏注册按钮） */
+  allow_register: boolean
 }

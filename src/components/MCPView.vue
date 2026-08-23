@@ -1,19 +1,56 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
+const props = defineProps<{
+  /** 当前登录用户名（本地模式为 null） */
+  currentUser: string | null
+}>()
+
 const emit = defineEmits<{
   (e: 'notify', msg: string): void
 }>()
 
 // MCP 工具清单（与后端 mcp.rs 保持一致）
 const mcpTools = [
-  'group_list / group_create / group_rename',
+  'app_version / app_release',
+  'group_list / group_create / group_rename / group_delete',
   'task_list / task_create / task_update',
-  'task_complete / task_delete / task_export',
+  'task_complete / task_delete / task_export / task_import',
 ]
 
 async function copyCommand() {
   try {
     await navigator.clipboard.writeText('todo4agent mcp')
     emit('notify', '已复制命令：todo4agent mcp')
+  } catch {
+    emit('notify', '复制失败，请手动复制')
+  }
+}
+
+/** 客户端配置示例：用户名动态填入当前登录用户 */
+const configText = computed(() =>
+  JSON.stringify(
+    {
+      mcpServers: {
+        todo4agent: {
+          command: 'todo4agent',
+          args: ['mcp'],
+          env: {
+            TODO4AGENT_USERNAME: props.currentUser ?? '你的用户名',
+            TODO4AGENT_PASSWORD: '你的密码',
+          },
+        },
+      },
+    },
+    null,
+    2,
+  ),
+)
+
+async function copyConfig() {
+  try {
+    await navigator.clipboard.writeText(configText.value)
+    emit('notify', '已复制 Agent 客户端配置')
   } catch {
     emit('notify', '复制失败，请手动复制')
   }
@@ -47,20 +84,19 @@ async function copyCommand() {
     </v-card>
 
     <v-card variant="outlined" class="mb-4">
-      <v-card-title>Agent 客户端配置示例</v-card-title>
+      <v-card-title class="d-flex align-center justify-space-between gap-2">
+        <span>Agent 客户端配置示例</span>
+        <v-btn
+          size="small"
+          variant="tonal"
+          prepend-icon="mdi-content-copy"
+          @click="copyConfig"
+        >
+          复制配置
+        </v-btn>
+      </v-card-title>
       <v-card-text>
-        <pre class="bg-surface-variant pa-3 rounded"><code>{
-  "mcpServers": {
-    "todo4agent": {
-      "command": "todo4agent",
-      "args": ["mcp"],
-      "env": {
-        "TODO4AGENT_USERNAME": "你的用户名",
-        "TODO4AGENT_PASSWORD": "你的密码"
-      }
-    }
-  }
-}</code></pre>
+        <pre class="code-block pa-3 rounded"><code>{{ configText }}</code></pre>
       </v-card-text>
     </v-card>
 
@@ -79,3 +115,14 @@ async function copyCommand() {
     </v-card>
   </div>
 </template>
+
+<style>
+/* 代码块面板：深色主题用近黑面板色，浅色主题沿用 surface-variant */
+.v-theme--dark .code-block {
+  background: #16181d;
+  color: #d6d9df;
+}
+.v-theme--light .code-block {
+  background: rgb(var(--v-theme-surface-variant));
+}
+</style>

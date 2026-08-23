@@ -2,7 +2,7 @@
 //! 多用户模型：users 表由 db 模块管理；本模块维护 token → user_id 的内存会话映射，
 //! 并通过 db::sessions 表持久化 —— 应用重启后已登录用户无需重新登录。
 
-use rand::RngCore;
+use rand::Rng;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;

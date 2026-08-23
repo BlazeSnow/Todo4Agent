@@ -179,11 +179,13 @@ fn app(state: SharedState) -> Router {
 
 // ---------- 端口与启动 ----------
 
-/// 从配置端口开始绑定 127.0.0.1（占用时顺延最多 10 个端口），返回监听器与实际端口
-pub async fn bind_tokio(preferred: u16) -> std::io::Result<(tokio::net::TcpListener, u16)> {
+/// 从配置端口开始绑定（`lan=true` 监听 0.0.0.0，否则仅 127.0.0.1；
+/// 占用时顺延最多 10 个端口），返回监听器与实际端口
+pub async fn bind_tokio(preferred: u16, lan: bool) -> std::io::Result<(tokio::net::TcpListener, u16)> {
+    let bind_addr: &str = if lan { "0.0.0.0" } else { "127.0.0.1" };
     let end = preferred.saturating_add(10).min(65535);
     for port in preferred..=end {
-        match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+        match tokio::net::TcpListener::bind((bind_addr, port)).await {
             Ok(l) => return Ok((l, port)),
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => continue,
             Err(e) => return Err(e),
@@ -201,8 +203,13 @@ pub fn serve_blocking() {
     rt.block_on(async move {
         let conn = db::open(&db::db_path()).expect("打开数据库失败");
         let preferred = db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT);
-        let (listener, port) = bind_tokio(preferred).await.expect("绑定端口失败");
-        println!("Todo4Agent WebUI: http://127.0.0.1:{port}");
+        let lan = db::get_webui_lan(&conn).unwrap_or(true);
+        let (listener, port) = bind_tokio(preferred, lan).await.expect("绑定端口失败");
+        if lan {
+            println!("Todo4Agent WebUI: http://127.0.0.1:{port} （已监听 0.0.0.0，局域网可访问）");
+        } else {
+            println!("Todo4Agent WebUI: http://127.0.0.1:{port} （仅本机可访问）");
+        }
         let sessions = auth_crate::Sessions::default();
         sessions.load_from_db(&conn);
         let state = Arc::new(AppState {
@@ -224,8 +231,13 @@ pub fn spawn_server() -> u16 {
         rt.block_on(async move {
             let conn = db::open(&db::db_path()).expect("打开数据库失败");
             let preferred = db::get_port_setting(&conn).unwrap_or(db::DEFAULT_PORT);
-            let (listener, port) = bind_tokio(preferred).await.expect("绑定端口失败");
-            println!("Todo4Agent WebUI: http://127.0.0.1:{port}");
+            let lan = db::get_webui_lan(&conn).unwrap_or(true);
+            let (listener, port) = bind_tokio(preferred, lan).await.expect("绑定端口失败");
+            if lan {
+                println!("Todo4Agent WebUI: http://127.0.0.1:{port} （已监听 0.0.0.0，局域网可访问）");
+            } else {
+                println!("Todo4Agent WebUI: http://127.0.0.1:{port} （仅本机可访问）");
+            }
             let _ = tx.send(port);
             let sessions = auth_crate::Sessions::default();
             sessions.load_from_db(&conn);

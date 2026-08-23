@@ -49,6 +49,16 @@ impl ToolDef {
 pub(super) fn tools() -> Vec<ToolDef> {
     vec![
         ToolDef::new(
+            "app_version",
+            "查询应用版本号",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        ToolDef::new(
+            "app_release",
+            "查询应用发布页地址（GitHub Releases）",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        ToolDef::new(
             "group_list",
             "列出所有任务分组",
             json!({ "type": "object", "properties": {} }),
@@ -72,6 +82,15 @@ pub(super) fn tools() -> Vec<ToolDef> {
                     "name": { "type": "string", "description": "新分组名（必填）" }
                 },
                 "required": ["id", "name"]
+            }),
+        ),
+        ToolDef::new(
+            "group_delete",
+            "删除任务分组（其下任务一并移入回收站）",
+            json!({
+                "type": "object",
+                "properties": { "id": { "type": "integer", "description": "分组 id（必填）" } },
+                "required": ["id"]
             }),
         ),
         ToolDef::new(
@@ -138,6 +157,20 @@ pub(super) fn tools() -> Vec<ToolDef> {
             "导出全部任务清单为 JSON 文档（与界面导出同构）",
             json!({ "type": "object", "properties": {} }),
         ),
+        ToolDef::new(
+            "task_import",
+            "导入任务清单 JSON 文档（与 task_export 输出同构，同名分组并入、新分组新建）",
+            json!({
+                "type": "object",
+                "properties": {
+                    "doc": {
+                        "type": "object",
+                        "description": "任务清单文档（必填）：{version, exported_at, groups: [{name, tasks: [{title, description, status, due_at}]}]}"
+                    }
+                },
+                "required": ["doc"]
+            }),
+        ),
     ]
 }
 
@@ -145,6 +178,21 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
     let db_err = |e: rusqlite::Error| tool_error(id, format!("数据库错误: {e}"));
 
     match name {
+        "app_version" => tool_result(
+            id,
+            json!({ "name": "todo4agent", "version": env!("CARGO_PKG_VERSION") }).to_string(),
+        ),
+
+        "app_release" => tool_result(
+            id,
+            json!({
+                "name": "todo4agent",
+                "version": env!("CARGO_PKG_VERSION"),
+                "release_url": "https://github.com/BlazeSnow/Todo4Agent/releases"
+            })
+            .to_string(),
+        ),
+
         "group_list" => match db::list_groups(conn, user_id) {
             Ok(v) => tool_result(id, json!(v).to_string()),
             Err(e) => db_err(e),
@@ -175,6 +223,18 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
                 Ok(Some(g)) => tool_result(id, json!(g).to_string()),
                 Ok(None) => tool_error(id, "分组不存在".into()),
                 Err(e) if db::is_unique_violation(&e) => tool_error(id, "分组名已存在".into()),
+                Err(e) => db_err(e),
+            }
+        }
+
+        "group_delete" => {
+            let gid = match arg_i64(args, "id") {
+                Ok(v) => v,
+                Err(m) => return tool_error(id, m),
+            };
+            match db::delete_group(conn, user_id, gid) {
+                Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
+                Ok(false) => tool_error(id, "分组不存在".into()),
                 Err(e) => db_err(e),
             }
         }
@@ -292,6 +352,41 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
             Err(e) => db_err(e),
         },
 
+        "task_import" => {
+            let doc: db::ExportDoc = match args.get("doc").cloned().map(serde_json::from_value) {
+                Some(Ok(d)) => d,
+                Some(Err(e)) => {
+                    return tool_error(id, format!("参数错误: doc 必须是任务清单文档 JSON: {e}"))
+                }
+                None => return tool_error(id, "参数错误: doc 必填".into()),
+            };
+            if doc.groups.is_empty() {
+                return tool_error(id, "导入内容为空".into());
+            }
+            match db::import_doc(conn, user_id, &doc) {
+                Ok(r) => tool_result(id, json!(r).to_string()),
+                Err(e) => db_err(e),
+            }
+        }
+
         _ => tool_error(id, format!("未知工具: {name}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_version_tool_defined() {
+        assert!(tools().iter().any(|t| t.name == "app_version"));
+        assert!(tools().iter().any(|t| t.name == "app_release"));
+    }
+
+    #[test]
+    fn new_tools_defined() {
+        let names: Vec<&str> = tools().iter().map(|t| t.name).collect();
+        assert!(names.contains(&"group_delete"));
+        assert!(names.contains(&"task_import"));
     }
 }

@@ -168,11 +168,15 @@ export function getSettings(): Promise<SettingsInfo> {
   return request<SettingsInfo>('/settings')
 }
 
-/** 保存端口配置（重启应用后生效） */
-export function updateSettings(port: number): Promise<{ port: number }> {
-  return request<{ port: number }>('/settings', {
+/** 保存服务设置：只更新传入的字段 */
+export function updateSettings(input: {
+  port?: number
+  webui_lan?: boolean
+  allow_register?: boolean
+}): Promise<SettingsInfo> {
+  return request<SettingsInfo>('/settings', {
     method: 'PATCH',
-    body: JSON.stringify({ port }),
+    body: JSON.stringify(input),
   })
 }
 

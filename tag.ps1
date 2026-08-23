@@ -1,25 +1,29 @@
 ﻿<#
 .SYNOPSIS
-  根据 package.json 中的 version 字段创建并推送 git tag，触发 GitHub Actions 自动发布 Release。
+  检查项目版本文件与 package.json 一致、开发者也已手动更新版本后，创建并推送 git tag 发布。
 
 .DESCRIPTION
   仓库的 Release 工作流在推送 v* 格式的 tag 时自动打包并创建 Release（vX.Y.Z-beta.N
   格式的 tag 会标为 Prerelease）。
-  本脚本默认读取仓库根目录 package.json 的 version 字段作为 tag，-beta.N 后缀原样保留
-  （例如 version 为 1.0.0-beta.1 时打 v1.0.0-beta.1）；也可以用 -Tag 显式指定。
-  正式版还是测试版由版本号本身决定：含 -beta.N 后缀即为测试版，否则为正式版。
-  执行前会打印将要执行的操作并要求输入 y 确认，输入其他内容则直接取消、不做任何改动。
+  执行流程：
+    1. 检查项目版本文件是否符合 package.json（tauri.conf.json / Cargo.toml / Cargo.lock 的
+       version 必须一致，wix.version 必须等于 msiVersion，version 必须符合 baseVersion 基线）；
+       检查不通过则拒绝继续，提示先运行 version.ps1 同步。
+    2. 提示开发者确认已手动修改本次发布版本（version / msiVersion）——tag.ps1 不做任何推断
+       和修改，tag 就是 v + package.json 的 version。
+    3. 检查本地与远程均不存在该 tag，确认后创建并推送。
+  也可以用 -Tag 显式指定版本号（跳过一致性检查与版本确认）。
 
 .PARAMETER Tag
   要打的版本号，格式 vX.Y.Z 或 vX.Y.Z-beta.N，例如 v1.5.0、v1.5.0-beta.2。
-  缺省时从 package.json 的 version 字段读取并原样使用（-beta.N 保留）。
+  缺省时使用 v + package.json 的 version。
 
 .PARAMETER NoPush
   只创建 tag，不推送到远程（不会触发任何工作流）。
 
 .EXAMPLE
-  .\tag.ps1                       # 按 package.json 的 version 打 tag（如 v1.5.0 或 v1.5.0-beta.1）
-  .\tag.ps1 -Tag v1.5.0           # 显式指定版本号
+  .\tag.ps1                       # 检查一致性并确认版本后打 tag（v + package.json.version）
+  .\tag.ps1 -Tag v1.5.0           # 显式指定版本号（跳过检查）
   .\tag.ps1 -NoPush               # 只创建本地 tag
 #>
 
@@ -32,19 +36,70 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$PackagePath = Join-Path $RepoRoot 'package.json'
 Push-Location $RepoRoot
 try {
-    # 1. 确定版本号：优先用 -Tag，否则从 VERSION 文件读取（发版前先运行 version.ps1 同步版本）
+    # 0. 读取 package.json
+    $pkg = Get-Content $PackagePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $base = $pkg.baseVersion
+    if (-not $base -or $base -notmatch '^v\d+\.\d+\.\d+$') {
+        throw "package.json 的 baseVersion 缺失或格式不正确：$base（应为 vX.Y.Z，例如 v1.0.0）"
+    }
+    $ver3 = $base.Substring(1)
+
+    # 1. 检查项目版本文件是否符合 package.json（-Tag 显式指定时跳过）
     if (-not $Tag) {
-        $version = (Get-Content (Join-Path $RepoRoot 'VERSION') -Raw -Encoding UTF8).Trim()
-        if (-not $version) {
-            throw 'VERSION 文件中缺少版本号，请先填写或用 -Tag 显式指定。'
+        $issues = @()
+
+        # version 必须符合 baseVersion 基线（1.0.0 或 1.0.0-beta.N）
+        if ($pkg.version -notmatch "^$([regex]::Escape($ver3))(-beta\.\d+)?$") {
+            $issues += "package.json 的 version $($pkg.version) 不符合 baseVersion 基线 $base"
         }
-        if ($version -notmatch '^\d+\.\d+\.\d+(-beta\.\d+)?$') {
-            throw "VERSION 文件格式不正确：$version（应为 X.Y.Z 或 X.Y.Z-beta.N，例如 1.0.0、1.0.0-beta.2）"
+
+        $tauri = Get-Content (Join-Path $RepoRoot 'src-tauri\tauri.conf.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        $cargoToml = Get-Content (Join-Path $RepoRoot 'src-tauri\Cargo.toml') -Raw -Encoding UTF8
+        $cargoTomlVer = ([regex]::Match($cargoToml, '(?m)^version = "([^"]+)"')).Groups[1].Value
+        $lock = Get-Content (Join-Path $RepoRoot 'src-tauri\Cargo.lock') -Raw -Encoding UTF8
+        $lockVer = ([regex]::Match($lock, '\[\[package\]\]\r?\nname = "todo4agent"\r?\nversion = "([^"]+)"')).Groups[1].Value
+
+        if ($tauri.version -ne $pkg.version) {
+            $issues += "tauri.conf.json 的 version $($tauri.version) 与 package.json $($pkg.version) 不一致"
         }
-        $Tag = 'v' + $version
-        Write-Host "从 VERSION 读取版本：$version"
+        if ($cargoTomlVer -ne $pkg.version) {
+            $issues += "Cargo.toml 的 version $cargoTomlVer 与 package.json $($pkg.version) 不一致"
+        }
+        if ($lockVer -ne $pkg.version) {
+            $issues += "Cargo.lock 根包 version $lockVer 与 package.json $($pkg.version) 不一致"
+        }
+        $wix = $tauri.bundle.windows.wix.version
+        if ($wix -ne $pkg.msiVersion) {
+            $issues += "wix.version $wix 与 package.json 的 msiVersion $($pkg.msiVersion) 不一致"
+        }
+
+        if ($issues.Count -gt 0) {
+            Write-Host '项目版本文件与 package.json 不一致，拒绝打 tag：' -ForegroundColor Red
+            foreach ($issue in $issues) { Write-Host "  - $issue" }
+            throw '请先运行 version.ps1 同步版本文件（或手动修改）后再打 tag。'
+        }
+        Write-Host "版本一致性检查通过：version=$($pkg.version)，msiVersion=$($pkg.msiVersion)"
+    }
+    else {
+        Write-Host '已用 -Tag 显式指定版本，跳过版本一致性检查。'
+    }
+
+    # 2. 确定版本号：优先用 -Tag，否则 v + package.json 的 version（不做推断）
+    if (-not $Tag) {
+        $Tag = 'v' + $pkg.version
+        Write-Host ''
+        Write-Host '当前版本配置：'
+        Write-Host "  baseVersion : $base（目标版本线）"
+        Write-Host "  version     : $($pkg.version)（本次将发布的版本）"
+        Write-Host "  msiVersion  : $($pkg.msiVersion)"
+        $confirm = Read-Host "请确认已手动修改 version / msiVersion 为本次发布的值？输入 y 继续（将打 tag $Tag），其他任意键取消"
+        if ($confirm -ne 'y' -and $confirm -ne 'Y') {
+            Write-Host '已取消。请先在 package.json 中手动修改 version / msiVersion，运行 version.ps1 同步后再执行本脚本。'
+            return
+        }
     }
 
     if ($Tag -notmatch '^v\d+\.\d+\.\d+(-beta\.\d+)?$') {
@@ -64,6 +119,7 @@ try {
     if (git ls-remote --tags origin $Tag) {
         throw "远程已存在 tag：$Tag"
     }
+    Write-Host "tag 不存在，可发布：$Tag"
 
     # 4. 打印将要执行的操作，要求输入 y 确认
     $currentBranch = git rev-parse --abbrev-ref HEAD
