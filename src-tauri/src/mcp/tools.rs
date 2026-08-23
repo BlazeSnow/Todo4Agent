@@ -174,7 +174,7 @@ pub(super) fn tools() -> Vec<ToolDef> {
     ]
 }
 
-pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Option<i64>, id: &Value) {
+pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i64, id: &Value) {
     let db_err = |e: rusqlite::Error| tool_error(id, format!("数据库错误: {e}"));
 
     match name {

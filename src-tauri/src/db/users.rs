@@ -144,20 +144,20 @@ mod tests {
     fn multi_user_isolation() {
         let (c, admin) = test_conn();
         // 初始用户 admin 拥有默认分组与数据
-        let gid = list_groups(&c, Some(admin)).unwrap()[0].id;
-        create_task(&c, Some(admin), gid, "admin任务", "", None).unwrap();
+        let gid = list_groups(&c, admin).unwrap()[0].id;
+        create_task(&c, admin, gid, "admin任务", "", None).unwrap();
 
         // 新注册用户：独立数据空间
         let u1 = create_user(&c, "alice", "pass1234").unwrap();
-        assert_eq!(list_groups(&c, Some(u1.id)).unwrap().len(), 0);
-        assert_eq!(list_tasks(&c, Some(u1.id), None).unwrap().len(), 0);
+        assert_eq!(list_groups(&c, u1.id).unwrap().len(), 0);
+        assert_eq!(list_tasks(&c, u1.id, None).unwrap().len(), 0);
 
         // admin 的分组与新用户互不可见/不可操作
-        let g = &list_groups(&c, Some(admin)).unwrap()[0];
-        assert!(rename_group(&c, Some(u1.id), g.id, "抢注").unwrap().is_none());
-        assert_eq!(list_tasks(&c, Some(u1.id), Some(g.id)).unwrap().len(), 0);
-        let t1 = list_tasks(&c, Some(admin), None).unwrap()[0].clone();
-        assert!(!delete_task(&c, Some(u1.id), t1.id).unwrap());
+        let g = &list_groups(&c, admin).unwrap()[0];
+        assert!(rename_group(&c, u1.id, g.id, "抢注").unwrap().is_none());
+        assert_eq!(list_tasks(&c, u1.id, Some(g.id)).unwrap().len(), 0);
+        let t1 = list_tasks(&c, admin, None).unwrap()[0].clone();
+        assert!(!delete_task(&c, u1.id, t1.id).unwrap());
 
         // 密码校验与默认密码标记
         assert!(verify_user(&c, "admin", "admin123").unwrap().is_some());

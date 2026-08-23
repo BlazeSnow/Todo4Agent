@@ -1,6 +1,7 @@
 //! HTTP API（axum）与内嵌 WebUI 静态资源服务。
-//! 多用户模型：未创建用户时为“本地模式”（免登录）；创建首个用户后进入多用户模式，
-//! 所有数据按当前登录用户隔离，接口需要 Bearer token。静态资源始终可访问（登录页由前端渲染）。
+//! 多用户模型：数据按当前登录用户隔离，除登录/注册/状态外的 /api 接口
+//! 均需 Bearer token。静态资源始终可访问（登录页由前端渲染）。
+//! 应用启动即播种初始用户 admin，故不存在无用户的“本地模式”。
 
 use axum::{
     extract::{Request, State},
@@ -33,9 +34,9 @@ pub struct AppState {
 }
 pub type SharedState = Arc<AppState>;
 
-/// 中间件注入的当前用户（None = 本地模式）
+/// 中间件注入的当前登录用户（受保护接口必经认证，恒有值）
 #[derive(Clone, Copy, Debug)]
-pub struct CurrentUser(pub Option<i64>);
+pub struct CurrentUser(pub i64);
 
 type ApiResult = (StatusCode, Json<Value>);
 
@@ -78,31 +79,17 @@ pub mod trash;
 async fn require_auth(State(st): State<SharedState>, mut req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
     let is_api = path.starts_with("/api");
+    // 静态资源与认证相关接口公开；其余 /api 接口需要有效 Bearer token
     let public =
         !is_api || matches!(path.as_str(), "/api/auth/status" | "/api/auth/login" | "/api/auth/register");
+    if public {
+        return next.run(req).await;
+    }
     let unauthorized =
         (StatusCode::UNAUTHORIZED, Json(json!({ "error": "未登录或登录已失效" }))).into_response();
-
-    // 多用户模式判定
-    let users_exist = {
-        let c = st.db.lock().unwrap();
-        db::user_count(&c).unwrap_or(0) > 0
-    };
-    if !users_exist {
-        // 本地模式：无登录要求
-        req.extensions_mut().insert(CurrentUser(None));
-        return next.run(req).await;
-    }
-
-    let uid = bearer_token(req.headers()).and_then(|t| st.sessions.user_id(t));
-    if public {
-        // 公开接口：带有效 token 则附带用户身份
-        req.extensions_mut().insert(CurrentUser(uid));
-        return next.run(req).await;
-    }
-    match uid {
+    match bearer_token(req.headers()).and_then(|t| st.sessions.user_id(t)) {
         Some(uid) => {
-            req.extensions_mut().insert(CurrentUser(Some(uid)));
+            req.extensions_mut().insert(CurrentUser(uid));
             next.run(req).await
         }
         None => unauthorized,

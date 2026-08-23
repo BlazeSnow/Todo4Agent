@@ -62,17 +62,15 @@ const currentView = ref<'tasks' | 'settings' | 'mcp' | 'trash'>('tasks')
 
 // ---------- 认证门控 ----------
 
-type AuthState = 'loading' | 'local' | 'guest' | 'ready'
+type AuthState = 'loading' | 'guest' | 'ready'
 const authState = ref<AuthState>('loading')
 const currentUser = ref<string | null>(null)
 
-/** 校验当前会话：本地模式直接进入；多用户模式需有效 token */
+/** 校验当前会话：需有效 token，否则进入登录页 */
 async function initAuth() {
   try {
     const s = await authStatus()
-    if (s.mode === 'local') {
-      authState.value = 'local'
-    } else if (s.user_id != null) {
+    if (s.user_id != null) {
       currentUser.value = s.username
       authState.value = 'ready'
     } else {

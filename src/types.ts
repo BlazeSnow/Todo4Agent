@@ -81,8 +81,6 @@ export interface ImportResult {
 
 /** 认证状态 */
 export interface AuthStatus {
-  /** local = 未创建用户（本地模式）；users = 多用户模式 */
-  mode: 'local' | 'users'
   user_id: number | null
   username: string | null
   /** 是否存在仍在使用初始默认密码的用户（登录页提示改密） */

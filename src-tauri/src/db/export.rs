@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result as SqlResult};
 
 use super::*;
 
-pub fn export_all(conn: &Connection, user_id: Option<i64>) -> SqlResult<ExportDoc> {
+pub fn export_all(conn: &Connection, user_id: i64) -> SqlResult<ExportDoc> {
     let groups = list_groups(conn, user_id)?;
     let mut out = Vec::with_capacity(groups.len());
     for g in &groups {
@@ -39,7 +39,7 @@ pub struct ImportResult {
 }
 
 /// 导入导出文档（仅导入到该用户）：同名分组并入（任务追加），新分组新建；任务全部新增
-pub fn import_doc(conn: &Connection, user_id: Option<i64>, doc: &ExportDoc) -> SqlResult<ImportResult> {
+pub fn import_doc(conn: &Connection, user_id: i64, doc: &ExportDoc) -> SqlResult<ImportResult> {
     let mut result = ImportResult {
         groups_created: 0,
         groups_merged: 0,
@@ -108,8 +108,8 @@ mod tests {
     fn import_doc_merge() {
         let (c, admin) = test_conn();
         // 预置数据：快速清单已存在（默认播种）
-        let gid = list_groups(&c, Some(admin)).unwrap()[0].id;
-        create_task(&c, Some(admin), gid, "原有任务", "", None).unwrap();
+        let gid = list_groups(&c, admin).unwrap()[0].id;
+        create_task(&c, admin, gid, "原有任务", "", None).unwrap();
 
         let doc = ExportDoc {
             version: 1,
@@ -150,29 +150,29 @@ mod tests {
             ],
         };
 
-        let r = import_doc(&c, Some(admin), &doc).unwrap();
+        let r = import_doc(&c, admin, &doc).unwrap();
         assert_eq!(r.groups_created, 1);
         assert_eq!(r.groups_merged, 1);
         assert_eq!(r.tasks_imported, 3);
         assert_eq!(r.tasks_skipped, 1);
 
         // 快速清单：原有 + 2 个导入任务，且导入任务保持 done 状态
-        let tasks = list_tasks(&c, Some(admin), Some(gid)).unwrap();
+        let tasks = list_tasks(&c, admin, Some(gid)).unwrap();
         assert_eq!(tasks.len(), 3);
         assert!(tasks.iter().any(|t| t.title == "导入任务1" && t.status == "done"));
 
         // 新分组
-        let groups = list_groups(&c, Some(admin)).unwrap();
+        let groups = list_groups(&c, admin).unwrap();
         let new_g = groups.iter().find(|g| g.name == "新分组").unwrap();
-        assert_eq!(list_tasks(&c, Some(admin), Some(new_g.id)).unwrap().len(), 1);
+        assert_eq!(list_tasks(&c, admin, Some(new_g.id)).unwrap().len(), 1);
     }
 
     #[test]
     fn export_shape() {
         let (c, admin) = test_conn();
-        let gid = list_groups(&c, Some(admin)).unwrap()[0].id;
-        create_task(&c, Some(admin), gid, "A", "B", None).unwrap();
-        let doc = export_all(&c, Some(admin)).unwrap();
+        let gid = list_groups(&c, admin).unwrap()[0].id;
+        create_task(&c, admin, gid, "A", "B", None).unwrap();
+        let doc = export_all(&c, admin).unwrap();
         assert_eq!(doc.version, 1);
         assert_eq!(doc.groups.len(), 1);
         assert_eq!(doc.groups[0].name, DEFAULT_GROUP);

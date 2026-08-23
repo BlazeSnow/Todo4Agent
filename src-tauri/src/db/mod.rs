@@ -91,7 +91,7 @@ pub fn db_path() -> PathBuf {
     dir.join("Todo4Agent").join("todo.db")
 }
 
-/// 打开数据库：建表并播种默认分组「快速清单」
+/// 打开数据库：建表、执行迁移，并播种初始用户 admin 与默认分组「快速清单」
 pub fn open(path: &Path) -> SqlResult<Connection> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -146,7 +146,6 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
     ensure_group_user_column(&conn)?;
     ensure_user_default_password_column(&conn)?;
     ensure_group_name_scoped(&conn)?;
-    seed_default_group(&conn)?;
     seed_default_admin(&conn)?;
     Ok(conn)
 }
@@ -252,7 +251,9 @@ fn ensure_group_name_scoped(conn: &Connection) -> SqlResult<()> {
     Ok(())
 }
 
-/// 初始化时播种初始用户 admin（仅当尚无任何用户；同时接管无主数据）
+/// 初始化时播种初始用户 admin（仅当尚无任何用户）。admin 创建时接管
+/// 本地模式遗留的无主数据；若接管后仍无任何分组，播种默认分组「快速清单」。
+/// 已有用户的数据库不会重复播种（用户彻底删除默认分组后不会再现）。
 fn seed_default_admin(conn: &Connection) -> SqlResult<()> {
     if user_count(conn)? == 0 {
         let user = create_user(conn, DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD)?;
@@ -260,6 +261,9 @@ fn seed_default_admin(conn: &Connection) -> SqlResult<()> {
             "UPDATE users SET default_password = 1 WHERE id = ?1",
             params![user.id],
         )?;
+        if list_groups(conn, user.id)?.is_empty() {
+            create_group(conn, user.id, DEFAULT_GROUP)?;
+        }
     }
     Ok(())
 }
@@ -309,16 +313,6 @@ pub fn delete_user_sessions(conn: &Connection, user_id: i64, keep: Option<&str>)
 
 
 // ---------- 用户 ----------
-
-fn seed_default_group(conn: &Connection) -> SqlResult<()> {
-    conn.execute(
-        "INSERT INTO groups (name, sort_order, created_at, user_id)
-         SELECT ?1, 0, ?2, NULL
-         WHERE NOT EXISTS (SELECT 1 FROM groups WHERE name = ?1)",
-        params![DEFAULT_GROUP, now()],
-    )?;
-    Ok(())
-}
 
 /// 是否为 UNIQUE 约束冲突（分组/用户重名）。按 SQLite 扩展错误码精确判定，
 /// 不与其他 ConstraintViolation（外键、CHECK 等）混淆
@@ -391,9 +385,64 @@ mod tests {
     #[test]
     fn seeds_default_group() {
         let (c, admin) = test_conn();
-        let groups = list_groups(&c, Some(admin)).unwrap();
+        let groups = list_groups(&c, admin).unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].name, DEFAULT_GROUP);
+    }
+
+    #[test]
+    fn existing_db_does_not_reseed_default_group() {
+        let path = std::env::temp_dir().join(format!("todo4agent-reseed-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        // 首次打开播种 admin 与默认分组；用户彻底删除默认分组
+        {
+            let c = open(&path).unwrap();
+            let admin = list_users(&c).unwrap()[0].id;
+            let gid = list_groups(&c, admin).unwrap()[0].id;
+            purge_group(&c, admin, gid).unwrap();
+        }
+        // 重新打开：不再播种默认分组，也不产生无主分组
+        let c = open(&path).unwrap();
+        let admin = list_users(&c).unwrap()[0].id;
+        assert!(list_groups(&c, admin).unwrap().is_empty());
+        let orphans: i64 = c
+            .query_row("SELECT COUNT(*) FROM groups WHERE user_id IS NULL", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(orphans, 0);
+        drop(c);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn legacy_local_db_admin_takes_over() {
+        let path = std::env::temp_dir().join(format!("todo4agent-legacy-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        // 构造旧本地模式库：有无主分组（user_id NULL）、没有任何用户
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(
+                r#"
+                CREATE TABLE groups (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name       TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    deleted_at TEXT,
+                    user_id    INTEGER
+                );
+                INSERT INTO groups (name, created_at) VALUES ('遗留分组', '2026-01-01T00:00:00Z');
+                "#,
+            )
+            .unwrap();
+        }
+        // 打开：播种 admin 并接管无主数据，不再追加默认分组
+        let c = open(&path).unwrap();
+        let admin = list_users(&c).unwrap()[0].id;
+        let groups = list_groups(&c, admin).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].name, "遗留分组");
+        drop(c);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
@@ -460,11 +509,11 @@ mod tests {
         assert_eq!(task_count, 1);
 
         // 回收站中的名字可以复用；其他用户可以用同名分组
-        let reused = create_group(&c, Some(1), "删除组").unwrap();
+        let reused = create_group(&c, 1, "删除组").unwrap();
         assert_ne!(reused.id, 2);
-        create_group(&c, Some(2), "旧组").unwrap();
+        create_group(&c, 2, "旧组").unwrap();
         // 同一用户的活动分组仍然不能重名
-        assert!(create_group(&c, Some(1), "删除组").is_err());
+        assert!(create_group(&c, 1, "删除组").is_err());
 
         drop(c);
         let _ = std::fs::remove_file(&path);
