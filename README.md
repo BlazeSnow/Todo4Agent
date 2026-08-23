@@ -7,7 +7,7 @@
 - 任务分组与任务管理：新建、编辑、完成、截止时间、排序
 - 回收站：误删可恢复
 - 多用户：每人的任务数据互相独立
-- 导入 / 导出 JSON，方便备份与迁移
+- 导入 / 导出 JSON（含任务清单与提示词），方便备份与迁移
 - 桌面应用（Windows / macOS / Linux）与浏览器 WebUI（默认 <http://127.0.0.1:3000>）
 - WebUI 默认监听 `0.0.0.0`，局域网内其他设备可直接访问；可在「设置 → 服务」关闭对外访问（仅本机）或修改端口
 - 新用户注册默认开启，可在「设置 → 用户」关闭
@@ -66,7 +66,7 @@ Agent 即可对你自己的任务清单执行增删改查、重排、导入导�
 | `group_list` / `group_create` / `group_rename` / `group_delete` | 任务分组管理（删除分组其下任务一并进回收站） |
 | `task_list` / `task_create` / `task_update` | 任务查询与编辑（支持移动分组、改状态、截止时间） |
 | `task_complete` / `task_delete` | 完成切换 / 删除（软删除进回收站） |
-| `task_export` / `task_import` | 导出任务清单 JSON（与界面导出同构）/ 导入（同名分组并入） |
+| `task_export` / `task_import` | 导出任务清单与提示词 JSON（与界面导出同构）/ 导入（同名分组并入，提示词随 `prompt` 字段迁移） |
 | `user_password` | 修改当前账号密码（原密码 + 新密码；改后该用户已登录会话失效，需同步更新客户端 env 中的 `TODO4AGENT_PASSWORD`） |
 | `prompt_get` / `prompt_update` | 读取 / 全量更新当前用户的 Agent 提示词（默认为空；`prompt_update` 传空字符串即清空） |
 

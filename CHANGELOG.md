@@ -4,7 +4,7 @@
 
 ### 新增
 
-- 新增「提示词」页面：AGENTS.md 式的 Agent 协作规范，默认为空、内容由用户自行填写，支持编辑、复制与清空；数据按用户隔离存储，Agent 可通过 MCP 新工具 `prompt_get` / `prompt_update` 读写同一份提示词（传空字符串即清空）
+- 新增「提示词」页面：AGENTS.md 式的 Agent 协作规范，默认为空、内容由用户自行填写，支持编辑、复制与清空；数据按用户隔离存储，Agent 可通过 MCP 新工具 `prompt_get` / `prompt_update` 读写同一份提示词（传空字符串即清空）；提示词随 JSON 导出/导入迁移（`prompt` 字段，旧版文件兼容）
 - 设置页「数据」区显示数据库文件路径，并新增「打开数据库文件位置」按钮：在系统文件管理器中定位该文件（Windows 选中文件 / macOS 在 Finder 中显示 / Linux 打开所在目录）
 - MCP 新增工具 `user_password`：修改当前账号密码（原密码 + 新密码），成功后吊销该用户全部已登录会话，并提醒同步更新客户端配置中的 `TODO4AGENT_PASSWORD`
 - 启动参数支持 `--port <端口>` 指定 WebUI/API 监听端口（1024-65535，也支持 `--port=端口`），本次运行有效、优先于设置页保存的端口；适用于桌面与 serve 模式，如 `todo4agent serve --port 8080`

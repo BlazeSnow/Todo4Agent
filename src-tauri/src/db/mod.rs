@@ -47,6 +47,9 @@ pub struct Task {
 pub struct ExportDoc {
     pub version: u32,
     pub exported_at: String,
+    /// 用户提示词（Agent 协作规范）；未设置为 null，旧版导出文件无此字段
+    #[serde(default)]
+    pub prompt: Option<String>,
     pub groups: Vec<ExportGroup>,
 }
 

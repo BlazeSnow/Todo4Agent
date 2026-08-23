@@ -154,12 +154,12 @@ pub(super) fn tools() -> Vec<ToolDef> {
         ),
         ToolDef::new(
             "task_export",
-            "导出全部任务清单为 JSON 文档（与界面导出同构）",
+            "导出任务清单与提示词为 JSON 文档（与界面导出同构）",
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
             "task_import",
-            "导入任务清单 JSON 文档（与 task_export 输出同构，同名分组并入、新分组新建）",
+            "导入 JSON 文档（与 task_export 输出同构：同名分组并入、新分组新建，含 prompt 字段时提示词一并导入）",
             json!({
                 "type": "object",
                 "properties": {

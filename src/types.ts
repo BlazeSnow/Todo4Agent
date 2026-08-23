@@ -48,6 +48,8 @@ export interface TaskUpdate {
 export interface ExportDoc {
   version: number
   exported_at: string
+  /** 用户提示词（Agent 协作规范）；未设置为 null，旧版文件无此字段 */
+  prompt?: string | null
   groups: {
     name: string
     tasks: {
@@ -79,6 +81,8 @@ export interface ImportResult {
   groups_merged: number
   tasks_imported: number
   tasks_skipped: number
+  /** 是否导入/更新了提示词（文档含 prompt 字段时） */
+  prompt_imported: boolean
 }
 
 /** Agent 提示词（协作规范，类似 AGENTS.md；默认为空） */

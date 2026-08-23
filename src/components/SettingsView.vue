@@ -63,7 +63,7 @@ function onPickImport() {
       emit('imported')
       emit(
         'notify',
-        `导入完成：新建 ${r.groups_created} 组、并入 ${r.groups_merged} 组、导入 ${r.tasks_imported} 个任务${r.tasks_skipped ? `、跳过 ${r.tasks_skipped} 个空任务` : ''}`,
+        `导入完成：新建 ${r.groups_created} 组、并入 ${r.groups_merged} 组、导入 ${r.tasks_imported} 个任务${r.prompt_imported ? '、已导入提示词' : ''}${r.tasks_skipped ? `、跳过 ${r.tasks_skipped} 个空任务` : ''}`,
       )
     } catch (e) {
       emit('error', (e as Error).message)

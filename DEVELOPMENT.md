@@ -152,6 +152,7 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
 {
   "version": 1,
   "exported_at": "2026-08-22T12:00:00Z",
+  "prompt": null,
   "groups": [
     {
       "name": "快速清单",
@@ -162,6 +163,9 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
   ]
 }
 ```
+
+`prompt` 为用户提示词（Agent 协作规范）：未设置为 null，旧版导出文件无此字段；
+导入时含该字段则提示词一并迁移（空白视为清空），不含则保持现状。
 
 ## 7. MCP 接入（供 Agent 使用）
 
