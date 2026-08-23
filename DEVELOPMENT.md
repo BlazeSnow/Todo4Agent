@@ -172,6 +172,8 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
 - `task_list`（可按分组过滤）/ `task_create` / `task_update` / `task_complete` / `task_delete`
 - `task_export`（导出 JSON，与界面导出走同一实现）/ `task_import`（导入 JSON，同名分组并入）
 - `user_password`（修改当前账号密码；成功后吊销该用户全部已登录会话，MCP 当前连接不受影响）
+- `prompt_get` / `prompt_update`（读取 / 全量更新当前用户的 Agent 提示词，存储于 prompts 表按用户隔离，
+  未自定义时返回 `db/prompts.rs` 的 `DEFAULT_PROMPT`；界面「提示词」页走同一实现）
 
 认证与环境变量：
 

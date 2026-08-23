@@ -18,6 +18,7 @@ const mcpTools = [
   'task_list / task_create / task_update',
   'task_complete / task_delete / task_export / task_import',
   'user_password',
+  'prompt_get / prompt_update',
 ]
 
 async function copyCommand() {

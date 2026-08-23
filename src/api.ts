@@ -3,6 +3,7 @@ import type {
   ExportDoc,
   Group,
   ImportResult,
+  PromptInfo,
   SettingsInfo,
   Task,
   TaskInput,
@@ -169,6 +170,21 @@ export function importDoc(doc: ExportDoc): Promise<ImportResult> {
   return request<ImportResult>('/import', {
     method: 'POST',
     body: JSON.stringify(doc),
+  })
+}
+
+// ---------- 提示词 ----------
+
+/** 获取当前用户提示词（未自定义时返回默认内容） */
+export function getPrompt(): Promise<PromptInfo> {
+  return request<PromptInfo>('/prompt')
+}
+
+/** 全量保存提示词（与 MCP prompt_update 同一实现） */
+export function savePrompt(content: string): Promise<PromptInfo> {
+  return request<PromptInfo>('/prompt', {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
   })
 }
 

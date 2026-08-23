@@ -8,7 +8,7 @@ const props = defineProps<{
   selectedId: number | null
   loading: boolean
   /** 当前主视图，用于侧边栏底部入口的选中高亮 */
-  activeView: 'tasks' | 'settings' | 'mcp' | 'trash'
+  activeView: 'tasks' | 'settings' | 'mcp' | 'prompt' | 'trash'
 }>()
 
 const emit = defineEmits<{
@@ -17,6 +17,7 @@ const emit = defineEmits<{
   (e: 'rename', group: Group): void
   (e: 'delete', group: Group): void
   (e: 'mcp'): void
+  (e: 'prompt'): void
   (e: 'settings'): void
   (e: 'trash'): void
   (e: 'reorder', groupIds: number[]): void
@@ -146,6 +147,14 @@ function openGroupCtx(group: Group, e: MouseEvent) {
       subtitle="点击查看连接说明"
       :active="activeView === 'mcp'"
       @click="$emit('mcp')"
+    />
+
+    <v-list-item
+      prepend-icon="mdi-script-text-outline"
+      title="提示词"
+      subtitle="Agent 协作规范"
+      :active="activeView === 'prompt'"
+      @click="$emit('prompt')"
     />
 
     <v-list-item

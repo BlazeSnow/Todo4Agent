@@ -9,6 +9,7 @@ import TaskListView from './components/TaskListView.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SettingsView from './components/SettingsView.vue'
 import MCPView from './components/MCPView.vue'
+import PromptView from './components/PromptView.vue'
 import TrashView from './components/TrashView.vue'
 import LoginView from './components/LoginView.vue'
 import {
@@ -58,7 +59,7 @@ const groupDialogTarget = ref<Group | null>(null)
 const confirmDialog = ref(false)
 type TrashAction = 'group' | 'task' | 'purgeGroup' | 'purgeTask' | 'emptyTrash'
 const confirmAction = ref<{ type: TrashAction; id?: number } | null>(null)
-const currentView = ref<'tasks' | 'settings' | 'mcp' | 'trash'>('tasks')
+const currentView = ref<'tasks' | 'settings' | 'mcp' | 'prompt' | 'trash'>('tasks')
 
 // ---------- 认证门控 ----------
 
@@ -457,6 +458,7 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
         @rename="openRenameGroup"
         @delete="onDeleteGroup"
         @mcp="currentView = 'mcp'"
+        @prompt="currentView = 'prompt'"
         @settings="currentView = 'settings'"
         @trash="currentView = 'trash'"
         @reorder="onReorderGroups"
@@ -494,7 +496,8 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           @purge="onPurgeTrash"
           @empty="onEmptyTrash"
         />
-        <MCPView v-else :current-user="currentUser" @notify="notify" />
+        <MCPView v-else-if="currentView === 'mcp'" :current-user="currentUser" @notify="notify" />
+        <PromptView v-else @notify="notify" @error="notify" />
       </v-container>
     </v-main>
 

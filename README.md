@@ -12,6 +12,7 @@
 - WebUI 默认监听 `0.0.0.0`，局域网内其他设备可直接访问；可在「设置 → 服务」关闭对外访问（仅本机）或修改端口
 - 新用户注册默认开启，可在「设置 → 用户」关闭
 - MCP 服务：Agent 通过标准 MCP 协议直接操作任务清单
+- 提示词：AGENTS.md 式的 Agent 协作规范，界面可编辑/复制/恢复默认，Agent 也可通过 MCP 读写（数据按用户隔离）
 
 ## 安装
 
@@ -67,6 +68,7 @@ Agent 即可对你自己的任务清单执行增删改查、重排、导入导�
 | `task_complete` / `task_delete` | 完成切换 / 删除（软删除进回收站） |
 | `task_export` / `task_import` | 导出任务清单 JSON（与界面导出同构）/ 导入（同名分组并入） |
 | `user_password` | 修改当前账号密码（原密码 + 新密码；改后该用户已登录会话失效，需同步更新客户端 env 中的 `TODO4AGENT_PASSWORD`） |
+| `prompt_get` / `prompt_update` | 读取 / 全量更新当前用户的 Agent 提示词（未自定义时返回内置默认） |
 
 > 凭据说明：MCP 启动时必须通过 `TODO4AGENT_USERNAME` / `TODO4AGENT_PASSWORD` 指定并验证账号
 > （首次运行数据库会自动创建初始账号 admin / admin123），验证失败将拒绝启动。
