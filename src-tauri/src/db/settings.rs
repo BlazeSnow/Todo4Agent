@@ -49,8 +49,6 @@ pub fn get_allow_register(conn: &Connection) -> SqlResult<bool> {
     get_bool_setting(conn, SETTINGS_ALLOW_REGISTER_KEY, true)
 }
 
-/// 数据库文件位置：环境变量 TODO4AGENT_DB 优先，否则平台数据目录
-
 #[cfg(test)]
 mod tests {
     use super::*;

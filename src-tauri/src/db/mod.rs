@@ -82,7 +82,7 @@ fn now() -> String {
 
 // ---------- 设置 ----------
 
-/// WebUI/API 端口设置键，默认 3000
+/// 数据库文件位置：环境变量 TODO4AGENT_DB 优先，否则平台数据目录 Todo4Agent/todo.db
 pub fn db_path() -> PathBuf {
     if let Ok(p) = std::env::var("TODO4AGENT_DB") {
         return PathBuf::from(p);
@@ -308,11 +308,13 @@ fn seed_default_group(conn: &Connection) -> SqlResult<()> {
     Ok(())
 }
 
-/// 是否为 UNIQUE 约束冲突（分组重名）
+/// 是否为 UNIQUE 约束冲突（分组/用户重名）。按 SQLite 扩展错误码精确判定，
+/// 不与其他 ConstraintViolation（外键、CHECK 等）混淆
 pub fn is_unique_violation(e: &rusqlite::Error) -> bool {
     matches!(
         e,
-        rusqlite::Error::SqliteFailure(ref f, _) if f.code == rusqlite::ErrorCode::ConstraintViolation
+        rusqlite::Error::SqliteFailure(ref f, _)
+            if f.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
     )
 }
 

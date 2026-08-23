@@ -267,7 +267,10 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: Op
             let due_at = args.get("due_at").and_then(Value::as_str).map(String::from);
             match db::create_task(conn, user_id, gid, &title, &description, due_at.as_deref()) {
                 Ok(t) => tool_result(id, json!(t).to_string()),
-                Err(e) if db::is_unique_violation(&e) => tool_error(id, "分组不存在".into()),
+                // create_task 预检查分组归属，分组缺失时返回 QueryReturnedNoRows
+                Err(rusqlite::Error::QueryReturnedNoRows) => {
+                    tool_error(id, "分组不存在".into())
+                }
                 Err(e) => db_err(e),
             }
         }
