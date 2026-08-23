@@ -6,7 +6,7 @@
 .DESCRIPTION
   版本号只需维护在仓库根目录的 package.json 中（version 与 msiVersion 字段）：
     - version：软件版本（格式 X.Y.Z 或 X.Y.Z-beta.N，如 1.0.0、1.0.0-beta.2）
-    - msiVersion：Windows MSI 发布序列号（格式 X.Y.Z 数字三段，第 N 次发布为 0.0.N）
+    - msiVersion：Windows MSI 发布序列号（格式 X.Y.Z，第 N 次发布为 1.0.N）
   本脚本会写入：
     - tauri.conf.json 的 version（应用版本）
     - tauri.conf.json 的 bundle.windows.wix.version（MSI 版本，取 msiVersion）
@@ -14,7 +14,8 @@
     - src-tauri/Cargo.lock 中根包 todo4agent 的 version（保持锁文件一致）
 
   msiVersion 独立于软件版本号的原因：MSI 版本比较只看前 3 段且不允许字母，
-  无法表达 beta 语义，用与发布次数绑定的独立序列号即可保证升级链路单调递增。
+  无法表达 beta 语义。用发布次数绑定序列号（1.0.N）即可单调递增：
+  历史 beta 的 MSI 版本为 1.0.0.x（比较值 1.0.0），1.0.N 高于它，旧版可直接覆盖升级。
   发布前 tag.ps1 会检查各版本文件与 package.json 的一致性。
   之后可运行 tag.ps1 按同一版本打 tag。
 
