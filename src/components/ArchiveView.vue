@@ -100,21 +100,31 @@ function groupNameOf(groupId: number): string {
               </div>
             </div>
             <div class="task-actions">
-              <v-btn
-                icon="mdi-package-up-outline"
-                size="small"
-                variant="text"
-                title="取消归档，回到原清单"
-                @click="$emit('restore', task)"
-              />
-              <v-btn
-                icon="mdi-delete"
-                size="small"
-                variant="text"
-                color="error"
-                title="移入回收站"
-                @click="$emit('remove', task)"
-              />
+              <v-menu location="bottom right">
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    icon="mdi-dots-horizontal"
+                    size="small"
+                    variant="text"
+                    :aria-label="`更多操作：${task.title}`"
+                  />
+                </template>
+                <v-list density="compact">
+                  <v-list-item
+                    prepend-icon="mdi-package-up-outline"
+                    title="取消归档"
+                    subtitle="回到原清单"
+                    @click="$emit('restore', task)"
+                  />
+                  <v-list-item
+                    prepend-icon="mdi-delete"
+                    title="移入回收站"
+                    color="error"
+                    @click="$emit('remove', task)"
+                  />
+                </v-list>
+              </v-menu>
             </div>
           </div>
         </v-timeline-item>
