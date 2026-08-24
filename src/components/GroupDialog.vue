@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import type { Group } from '../types'
+import { onEnterSubmit } from '../ime'
 
 const props = defineProps<{
   modelValue: boolean
@@ -43,7 +44,7 @@ function save() {
     <v-card>
       <v-card-title>{{ mode === 'create' ? '新增分组' : '编辑分组' }}</v-card-title>
       <v-card-text>
-        <v-text-field v-model="name" label="分组名称" autofocus @keydown.enter="save" />
+        <v-text-field v-model="name" label="分组名称" autofocus @keydown.enter="onEnterSubmit($event, save)" />
         <v-textarea
           v-model="description"
           label="分组描述（可选）"

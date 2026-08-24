@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import type { Group, Task, TaskInput } from '../types'
+import { onEnterSubmit } from '../ime'
 
 const props = defineProps<{
   modelValue: boolean
@@ -72,7 +73,7 @@ function save() {
           :disabled="groups.length === 0"
           class="mb-2"
         />
-        <v-text-field v-model="title" label="任务标题" required autofocus @keydown.enter="save" />
+        <v-text-field v-model="title" label="任务标题" required autofocus @keydown.enter="onEnterSubmit($event, save)" />
         <v-textarea v-model="description" label="详细说明（可选）" rows="3" auto-grow />
         <v-text-field v-model="dueLocal" label="截止时间（可选）" type="datetime-local" clearable />
       </v-card-text>
