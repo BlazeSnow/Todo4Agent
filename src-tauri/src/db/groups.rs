@@ -47,11 +47,13 @@ pub fn group_lock_info(conn: &Connection, user_id: i64, group_id: i64) -> SqlRes
     .optional()
 }
 
-/// 设置分组锁定；分组不存在、已删除或不属于该用户返回 Ok(false)
+/// 设置分组锁定；分组不存在、已删除、不属于该用户或为系统分组「无分组」返回 Ok(false)。
+/// 「无分组」是删除分组后任务的兜底去处，须始终可被 Agent 编辑，故不可锁定
 pub fn set_group_locked(conn: &Connection, user_id: i64, group_id: i64, locked: bool) -> SqlResult<bool> {
     let n = conn.execute(
-        "UPDATE groups SET locked = ?1 WHERE id = ?2 AND user_id = ?3 AND deleted_at IS NULL",
-        params![locked, group_id, user_id],
+        "UPDATE groups SET locked = ?1 WHERE id = ?2 AND user_id = ?3 AND deleted_at IS NULL
+         AND name != ?4",
+        params![locked, group_id, user_id, NO_GROUP],
     )?;
     Ok(n > 0)
 }
@@ -160,6 +162,11 @@ pub fn ensure_no_group(conn: &Connection, user_id: i64) -> SqlResult<i64> {
             "UPDATE groups SET description = '' WHERE id = ?1 AND description = ?2",
             params![id, "分组删除后其任务的去处"],
         )?;
+        // 旧版本可能锁定了「无分组」，强制解锁以保证兜底去处始终可编辑（不匹配时为无操作）
+        conn.execute(
+            "UPDATE groups SET locked = 0 WHERE id = ?1 AND locked = 1",
+            params![id],
+        )?;
         return Ok(id);
     }
     Ok(create_group(conn, user_id, NO_GROUP, "")?.id)
@@ -196,6 +203,22 @@ mod tests {
         // 任务不随分组删除而删除，移入系统分组「无分组」
         assert!(list_tasks(&c, admin, Some(g.id)).unwrap().is_empty());
         assert_eq!(list_tasks(&c, admin, Some(no_group)).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn no_group_cannot_be_locked() {
+        let (c, admin) = test_conn();
+        let no_group = list_groups(&c, admin).unwrap().iter().find(|g| g.name == NO_GROUP).unwrap().id;
+
+        // 「无分组」是删除分组后任务的兜底去处，禁止锁定
+        assert!(!set_group_locked(&c, admin, no_group, true).unwrap());
+        assert!(!get_group(&c, admin, no_group).unwrap().unwrap().locked);
+        assert!(locked_group_names(&c, admin).unwrap().is_empty());
+
+        // 旧版本数据中若已被锁定，ensure_no_group 会强制解锁
+        c.execute("UPDATE groups SET locked = 1 WHERE id = ?1", params![no_group]).unwrap();
+        ensure_no_group(&c, admin).unwrap();
+        assert!(!get_group(&c, admin, no_group).unwrap().unwrap().locked);
     }
 
     #[test]

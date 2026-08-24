@@ -96,6 +96,14 @@ pub async fn update_group(
         }
     }
     if let Some(locked) = body.locked {
+        // 系统分组「无分组」是删除分组后任务的兜底去处，不可锁定（db 层同样兜底）
+        if locked {
+            if let Ok(Some(g)) = db::get_group(&c, cur.0, id) {
+                if g.name == db::NO_GROUP {
+                    return err(StatusCode::CONFLICT, "系统分组「无分组」不可锁定，它是分组删除后任务的兜底去处");
+                }
+            }
+        }
         match db::set_group_locked(&c, cur.0, id, locked) {
             Ok(true) => {}
             Ok(false) => return err(StatusCode::NOT_FOUND, "分组不存在"),
