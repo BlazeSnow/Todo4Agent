@@ -165,7 +165,7 @@ mod tests {
         assert!(list_trash(&c, admin).unwrap().1.is_empty());
 
         // 分组软删级联 + 恢复
-        let g = create_group(&c, admin, "回收组").unwrap();
+        let g = create_group(&c, admin, "回收组", "").unwrap();
         create_task(&c, admin, g.id, "组内任务", "", None).unwrap();
         assert!(delete_group(&c, admin, g.id).unwrap());
         let (groups, tasks) = list_trash(&c, admin).unwrap();
@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(list_tasks(&c, admin, Some(g.id)).unwrap().len(), 1);
 
         // 分组在回收站时其任务再删除会怎样：恢复后任务仍在
-        let g2 = create_group(&c, admin, "再删组").unwrap();
+        let g2 = create_group(&c, admin, "再删组", "").unwrap();
         delete_group(&c, admin, g2.id).unwrap();
         assert!(purge_group(&c, admin, g2.id).unwrap());
         assert!(list_trash(&c, admin).unwrap().0.iter().all(|x| x.id != g2.id));
@@ -192,12 +192,12 @@ mod tests {
     #[test]
     fn restore_group_name_conflict_renames() {
         let (c, admin) = test_conn();
-        let g = create_group(&c, admin, "项目").unwrap();
+        let g = create_group(&c, admin, "项目", "").unwrap();
         create_task(&c, admin, g.id, "任务A", "", None).unwrap();
         delete_group(&c, admin, g.id).unwrap();
 
         // 原名被新分组占用 → 恢复时自动重命名
-        create_group(&c, admin, "项目").unwrap();
+        create_group(&c, admin, "项目", "").unwrap();
         let out = restore_group(&c, admin, g.id).unwrap().unwrap();
         assert_eq!(out, Some("项目 (2)".to_string()));
 
@@ -208,7 +208,7 @@ mod tests {
         assert_eq!(list_tasks(&c, admin, Some(restored.id)).unwrap().len(), 1);
 
         // 无冲突时原名恢复
-        let g2 = create_group(&c, admin, "空组").unwrap();
+        let g2 = create_group(&c, admin, "空组", "").unwrap();
         delete_group(&c, admin, g2.id).unwrap();
         assert_eq!(restore_group(&c, admin, g2.id).unwrap().unwrap(), None);
 

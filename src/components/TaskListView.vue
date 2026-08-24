@@ -8,6 +8,8 @@ const props = defineProps<{
   loading: boolean
   /** 当前分组名（未选择时为 null） */
   groupName: string | null
+  /** 当前分组描述（未设置或未选择时为 null） */
+  groupDescription: string | null
 }>()
 
 const emit = defineEmits<{
@@ -142,7 +144,10 @@ function overdue(task: Task): boolean {
 <template>
   <div>
     <div class="list-header">
-      <h2 class="group-title">{{ groupName ?? '未选择分组' }}</h2>
+      <div class="group-heading">
+        <h2 class="group-title">{{ groupName ?? '未选择分组' }}</h2>
+        <div v-if="groupDescription" class="group-desc">{{ groupDescription }}</div>
+      </div>
       <div class="header-actions">
         <v-menu>
           <template #activator="{ props }">
@@ -260,10 +265,20 @@ function overdue(task: Task): boolean {
   gap: 12px;
   margin-bottom: 16px;
 }
+.group-heading {
+  min-width: 0;
+}
 .group-title {
   font-size: 18px;
   font-weight: 600;
   margin: 0;
+}
+.group-desc {
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 2px;
 }
 .header-actions {
   margin-left: auto;

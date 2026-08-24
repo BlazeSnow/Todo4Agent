@@ -10,22 +10,26 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
-  (e: 'save', name: string): void
+  (e: 'save', name: string, description: string): void
 }>()
 
 const name = ref('')
+const description = ref('')
 
 watch(
   () => props.modelValue,
   (open) => {
-    if (open) name.value = props.group?.name ?? ''
+    if (open) {
+      name.value = props.group?.name ?? ''
+      description.value = props.group?.description ?? ''
+    }
   },
 )
 
 function save() {
   const v = name.value.trim()
   if (!v) return
-  emit('save', v)
+  emit('save', v, description.value.trim())
   emit('update:modelValue', false)
 }
 </script>
@@ -33,13 +37,21 @@ function save() {
 <template>
   <v-dialog
     :model-value="modelValue"
-    max-width="420"
+    max-width="480"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card>
-      <v-card-title>{{ mode === 'create' ? '新增分组' : '重命名分组' }}</v-card-title>
+      <v-card-title>{{ mode === 'create' ? '新增分组' : '编辑分组' }}</v-card-title>
       <v-card-text>
         <v-text-field v-model="name" label="分组名称" autofocus @keydown.enter="save" />
+        <v-textarea
+          v-model="description"
+          label="分组描述（可选）"
+          placeholder="说明该清单的用途，如给 Agent 的使用备注"
+          rows="3"
+          auto-grow
+          hide-details
+        />
       </v-card-text>
       <v-card-actions>
         <v-spacer />

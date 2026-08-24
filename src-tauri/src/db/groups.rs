@@ -10,15 +10,16 @@ pub fn list_groups(conn: &Connection, user_id: i64) -> SqlResult<Vec<Group>> {
     rows.collect()
 }
 
-pub fn create_group(conn: &Connection, user_id: i64, name: &str) -> SqlResult<Group> {
+pub fn create_group(conn: &Connection, user_id: i64, name: &str, description: &str) -> SqlResult<Group> {
     let created_at = now();
     conn.execute(
-        "INSERT INTO groups (name, sort_order, created_at, user_id) VALUES (?1, 0, ?2, ?3)",
-        params![name, created_at, user_id],
+        "INSERT INTO groups (name, description, sort_order, created_at, user_id) VALUES (?1, ?2, 0, ?3, ?4)",
+        params![name, description, created_at, user_id],
     )?;
     Ok(Group {
         id: conn.last_insert_rowid(),
         name: name.to_string(),
+        description: description.to_string(),
         sort_order: 0,
         created_at,
         deleted_at: None,
@@ -51,6 +52,15 @@ pub fn set_group_locked(conn: &Connection, user_id: i64, group_id: i64, locked: 
     let n = conn.execute(
         "UPDATE groups SET locked = ?1 WHERE id = ?2 AND user_id = ?3 AND deleted_at IS NULL",
         params![locked, group_id, user_id],
+    )?;
+    Ok(n > 0)
+}
+
+/// 更新分组描述；分组不存在、已删除或不属于该用户返回 Ok(false)
+pub fn set_group_description(conn: &Connection, user_id: i64, group_id: i64, description: &str) -> SqlResult<bool> {
+    let n = conn.execute(
+        "UPDATE groups SET description = ?1 WHERE id = ?2 AND user_id = ?3 AND deleted_at IS NULL",
+        params![description, group_id, user_id],
     )?;
     Ok(n > 0)
 }
@@ -137,9 +147,9 @@ mod tests {
     #[test]
     fn group_crud_and_unique() {
         let (c, admin) = test_conn();
-        let g = create_group(&c, admin, "工作").unwrap();
+        let g = create_group(&c, admin, "工作", "").unwrap();
         assert_eq!(g.id, 2); // 默认分组占 id=1
-        let dup = create_group(&c, admin, "工作").unwrap_err();
+        let dup = create_group(&c, admin, "工作", "").unwrap_err();
         assert!(is_unique_violation(&dup));
         assert!(rename_group(&c, admin, g.id, "生活").unwrap().is_some());
         assert!(list_groups(&c, admin).unwrap().iter().any(|x| x.name == "生活"));
@@ -151,7 +161,7 @@ mod tests {
     #[test]
     fn cascade_delete_group() {
         let (c, admin) = test_conn();
-        let g = create_group(&c, admin, "临时").unwrap();
+        let g = create_group(&c, admin, "临时", "").unwrap();
         create_task(&c, admin, g.id, "任务", "", None).unwrap();
         assert_eq!(list_tasks(&c, admin, None).unwrap().len(), 1);
         delete_group(&c, admin, g.id).unwrap();
@@ -161,9 +171,9 @@ mod tests {
     #[test]
     fn reorder_groups_order() {
         let (c, admin) = test_conn();
-        let g1 = create_group(&c, admin, "甲").unwrap();
-        let g2 = create_group(&c, admin, "乙").unwrap();
-        let g3 = create_group(&c, admin, "丙").unwrap();
+        let g1 = create_group(&c, admin, "甲", "").unwrap();
+        let g2 = create_group(&c, admin, "乙", "").unwrap();
+        let g3 = create_group(&c, admin, "丙", "").unwrap();
 
         reorder_groups(&c, admin, &[g3.id, g1.id, g2.id]).unwrap();
         let ids: Vec<i64> = list_groups(&c, admin).unwrap().iter().map(|g| g.id).collect();
@@ -177,24 +187,48 @@ mod tests {
         let other = create_user(&c, "bob", "pass1234").unwrap();
 
         // 其他用户可以创建与 admin 同名的分组（唯一性按用户生效）
-        create_group(&c, other.id, DEFAULT_GROUP).unwrap();
+        create_group(&c, other.id, DEFAULT_GROUP, "").unwrap();
 
         // 回收站中的分组不占用名字：删除后可再建同名分组
-        let g = create_group(&c, admin, "项目").unwrap();
+        let g = create_group(&c, admin, "项目", "").unwrap();
         delete_group(&c, admin, g.id).unwrap();
-        let g2 = create_group(&c, admin, "项目").unwrap();
+        let g2 = create_group(&c, admin, "项目", "").unwrap();
         assert_ne!(g.id, g2.id);
 
         // 同一用户的活动分组仍然不能重名
-        let dup = create_group(&c, admin, "项目").unwrap_err();
+        let dup = create_group(&c, admin, "项目", "").unwrap_err();
         assert!(is_unique_violation(&dup));
+    }
+
+    #[test]
+    fn group_description_roundtrip() {
+        let (c, admin) = test_conn();
+        let other = create_user(&c, "carol", "pass1234").unwrap();
+
+        // 创建时带描述；默认分组无描述（空字符串）
+        let g = create_group(&c, admin, "工作清单", "记录日常工作任务").unwrap();
+        assert_eq!(g.description, "记录日常工作任务");
+        let seeded = get_group(&c, admin, 1).unwrap().unwrap();
+        assert_eq!(seeded.description, "");
+
+        // 更新与清空
+        assert!(set_group_description(&c, admin, g.id, "新描述").unwrap());
+        assert_eq!(get_group(&c, admin, g.id).unwrap().unwrap().description, "新描述");
+        assert!(set_group_description(&c, admin, g.id, "").unwrap());
+        assert_eq!(get_group(&c, admin, g.id).unwrap().unwrap().description, "");
+
+        // 软删除后不可更新；其他用户不可更新
+        delete_group(&c, admin, g.id).unwrap();
+        assert!(!set_group_description(&c, admin, g.id, "x").unwrap());
+        let g2 = create_group(&c, admin, "另一个", "").unwrap();
+        assert!(!set_group_description(&c, other.id, g2.id, "x").unwrap());
     }
 
     #[test]
     fn group_lock_roundtrip_and_isolation() {
         let (c, admin) = test_conn();
         let other = create_user(&c, "frank", "pass1234").unwrap();
-        let g = create_group(&c, admin, "私人清单").unwrap();
+        let g = create_group(&c, admin, "私人清单", "").unwrap();
 
         // 默认未锁定；锁定后 list/get/lock_info 均可见
         assert!(!g.locked);

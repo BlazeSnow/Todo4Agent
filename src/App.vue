@@ -25,7 +25,7 @@ import {
   listTrash,
   purgeGroup,
   purgeTask,
-  renameGroup,
+  updateGroup,
   reorderGroups,
   reorderTasks,
   restoreGroup,
@@ -207,14 +207,14 @@ function openRenameGroup(group: Group) {
   groupDialog.value = true
 }
 
-async function onGroupDialogSave(name: string) {
+async function onGroupDialogSave(name: string, description: string) {
   try {
     if (groupDialogMode.value === 'create') {
-      await createGroup(name)
+      await createGroup(name, description)
       notify(`已创建分组：${name}`)
     } else if (groupDialogTarget.value) {
-      await renameGroup(groupDialogTarget.value.id, name)
-      notify(`已重命名分组：${name}`)
+      await updateGroup(groupDialogTarget.value.id, { name, description })
+      notify(`已保存分组修改：${name}`)
     }
     await loadGroups()
   } catch (e) {
@@ -500,6 +500,7 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           :tasks="tasks"
           :loading="loadingTasks"
           :group-name="selectedGroup?.name ?? null"
+          :group-description="selectedGroup?.description || null"
           @create="openCreateTask"
           @edit="openEditTask"
           @toggle="onToggleTask"

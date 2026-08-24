@@ -23,21 +23,24 @@ pub async fn list_groups(
 }
 
 #[derive(Deserialize)]
-pub struct GroupName {
+pub struct GroupCreate {
     name: String,
+    /// 分组描述（可选）：说明该清单的用途
+    #[serde(default)]
+    description: String,
 }
 
 pub async fn create_group(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
-    Json(body): Json<GroupName>,
+    Json(body): Json<GroupCreate>,
 ) -> ApiResult {
     let name = body.name.trim();
     if name.is_empty() {
         return err(StatusCode::BAD_REQUEST, "分组名不能为空");
     }
     let c = st.db.lock().unwrap();
-    match db::create_group(&c, cur.0, name) {
+    match db::create_group(&c, cur.0, name, body.description.trim()) {
         Ok(group) => ok_json(json!(group)),
         Err(e) if db::is_unique_violation(&e) => err(StatusCode::CONFLICT, "分组名已存在"),
         Err(e) => internal(e),
@@ -47,11 +50,13 @@ pub async fn create_group(
 #[derive(Deserialize)]
 pub struct GroupUpdate {
     name: Option<String>,
+    /// 分组描述：说明该清单的用途，可为空
+    description: Option<String>,
     /// 清单锁定：锁定后 Agent 无法通过 MCP 编辑该清单，界面编辑不受影响
     locked: Option<bool>,
 }
 
-/// 更新分组：重命名 / 切换锁定（只处理传入的字段）
+/// 更新分组：重命名 / 修改描述 / 切换锁定（只处理传入的字段）
 pub async fn update_group(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
@@ -63,7 +68,7 @@ pub async fn update_group(
             return err(StatusCode::BAD_REQUEST, "分组名不能为空");
         }
     }
-    if body.name.is_none() && body.locked.is_none() {
+    if body.name.is_none() && body.description.is_none() && body.locked.is_none() {
         return err(StatusCode::BAD_REQUEST, "没有需要更新的字段");
     }
     let c = st.db.lock().unwrap();
@@ -74,6 +79,13 @@ pub async fn update_group(
             Err(e) if db::is_unique_violation(&e) => {
                 return err(StatusCode::CONFLICT, "分组名已存在")
             }
+            Err(e) => return internal(e),
+        }
+    }
+    if let Some(description) = &body.description {
+        match db::set_group_description(&c, cur.0, id, description.trim()) {
+            Ok(true) => {}
+            Ok(false) => return err(StatusCode::NOT_FOUND, "分组不存在"),
             Err(e) => return internal(e),
         }
     }

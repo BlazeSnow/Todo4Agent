@@ -67,7 +67,7 @@ function openGroupCtx(group: Group, e: MouseEvent) {
         action: () => moveGroup(group, 1),
       },
       { divider: true },
-      { label: '重命名', icon: 'mdi-pencil', action: () => emit('rename', group) },
+      { label: '编辑分组', icon: 'mdi-pencil', action: () => emit('rename', group) },
       {
         label: group.locked ? '解锁清单' : '锁定清单',
         icon: group.locked ? 'mdi-lock-open' : 'mdi-lock',
@@ -121,7 +121,8 @@ function openGroupCtx(group: Group, e: MouseEvent) {
             <v-divider />
             <v-list-item
               prepend-icon="mdi-pencil"
-              title="重命名"
+              title="编辑分组"
+              subtitle="名称与描述"
               @click="$emit('rename', group)"
             />
             <v-list-item

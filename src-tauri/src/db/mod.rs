@@ -20,6 +20,8 @@ pub struct User {
 pub struct Group {
     pub id: i64,
     pub name: String,
+    /// 分组描述：说明该清单的用途（如给 Agent 的使用备注），可为空
+    pub description: String,
     pub sort_order: i64,
     pub created_at: String,
     /// 回收站标记：非 null 表示已删除（软删除）
@@ -58,6 +60,9 @@ pub struct ExportDoc {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportGroup {
     pub name: String,
+    /// 分组描述；旧版导出文件无此字段，导入时视为空
+    #[serde(default)]
+    pub description: String,
     pub tasks: Vec<ExportTask>,
 }
 
@@ -108,13 +113,14 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
         r#"
         PRAGMA foreign_keys = ON;
         CREATE TABLE IF NOT EXISTS groups (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT NOT NULL,
-            sort_order INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            deleted_at TEXT,
-            user_id    INTEGER,
-            locked     INTEGER NOT NULL DEFAULT 0
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL,
+            deleted_at  TEXT,
+            user_id     INTEGER,
+            locked      INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS users (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,6 +163,9 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
     ensure_group_user_column(&conn)?;
     ensure_user_default_password_column(&conn)?;
     ensure_group_locked_column(&conn)?;
+    // 补列需在 name_scoped 表重建之前：重建按显式列复制（含 description），
+    // 旧库若未先补列，SELECT description 会失败
+    ensure_group_description_column(&conn)?;
     ensure_group_name_scoped(&conn)?;
     seed_default_admin(&conn)?;
     Ok(conn)
@@ -222,6 +231,21 @@ fn ensure_group_locked_column(conn: &Connection) -> SqlResult<()> {
     }
     Ok(())
 }
+/// 为旧数据库迁移 groups.description 列（分组描述）；须在 ensure_group_name_scoped 之前执行
+fn ensure_group_description_column(conn: &Connection) -> SqlResult<()> {
+    let has: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('groups') WHERE name = 'description'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|n| n > 0)?;
+    if !has {
+        conn.execute(
+            "ALTER TABLE groups ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
 /// 为旧数据库迁移 users.default_password 列（初始密码标记）
 fn ensure_user_default_password_column(conn: &Connection) -> SqlResult<()> {
     let has: bool = conn
@@ -254,16 +278,17 @@ fn ensure_group_name_scoped(conn: &Connection) -> SqlResult<()> {
             r#"
             BEGIN;
             CREATE TABLE groups_migrate (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                name       TEXT NOT NULL,
-                sort_order INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                deleted_at TEXT,
-                user_id    INTEGER,
-                locked     INTEGER NOT NULL DEFAULT 0
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                sort_order  INTEGER NOT NULL DEFAULT 0,
+                created_at  TEXT NOT NULL,
+                deleted_at  TEXT,
+                user_id     INTEGER,
+                locked      INTEGER NOT NULL DEFAULT 0
             );
-            INSERT INTO groups_migrate (id, name, sort_order, created_at, deleted_at, user_id, locked)
-                SELECT id, name, sort_order, created_at, deleted_at, user_id, locked FROM groups;
+            INSERT INTO groups_migrate (id, name, description, sort_order, created_at, deleted_at, user_id, locked)
+            SELECT id, name, description, sort_order, created_at, deleted_at, user_id, locked FROM groups;
             DROP TABLE groups;
             ALTER TABLE groups_migrate RENAME TO groups;
             COMMIT;
@@ -290,7 +315,7 @@ fn seed_default_admin(conn: &Connection) -> SqlResult<()> {
             params![user.id],
         )?;
         if list_groups(conn, user.id)?.is_empty() {
-            create_group(conn, user.id, DEFAULT_GROUP)?;
+            create_group(conn, user.id, DEFAULT_GROUP, "")?;
         }
     }
     Ok(())
@@ -324,10 +349,11 @@ fn group_from_row(row: &rusqlite::Row<'_>) -> SqlResult<Group> {
     Ok(Group {
         id: row.get(0)?,
         name: row.get(1)?,
-        sort_order: row.get(2)?,
-        created_at: row.get(3)?,
-        deleted_at: row.get(4)?,
-        locked: row.get(5)?,
+        description: row.get(2)?,
+        sort_order: row.get(3)?,
+        created_at: row.get(4)?,
+        deleted_at: row.get(5)?,
+        locked: row.get(6)?,
     })
 }
 
@@ -347,7 +373,7 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> SqlResult<Task> {
 }
 
 /// 分组查询的列顺序必须与 group_from_row 一致
-const GROUP_COLS: &str = "id, name, sort_order, created_at, deleted_at, locked";
+const GROUP_COLS: &str = "id, name, description, sort_order, created_at, deleted_at, locked";
 /// 任务查询的列顺序必须与 task_from_row 一致
 const TASK_COLS: &str =
     "id, group_id, title, description, status, due_at, created_at, updated_at, sort_order, deleted_at";
@@ -509,11 +535,11 @@ mod tests {
         assert_eq!(task_count, 1);
 
         // 回收站中的名字可以复用；其他用户可以用同名分组
-        let reused = create_group(&c, 1, "删除组").unwrap();
+        let reused = create_group(&c, 1, "删除组", "").unwrap();
         assert_ne!(reused.id, 2);
-        create_group(&c, 2, "旧组").unwrap();
+        create_group(&c, 2, "旧组", "").unwrap();
         // 同一用户的活动分组仍然不能重名
-        assert!(create_group(&c, 1, "删除组").is_err());
+        assert!(create_group(&c, 1, "删除组", "").is_err());
 
         drop(c);
         let _ = std::fs::remove_file(&path);

@@ -2,6 +2,8 @@
 export interface Group {
   id: number
   name: string
+  /** 分组描述：说明该清单的用途（如给 Agent 的使用备注），可为空 */
+  description: string
   sort_order: number
   created_at: string
   /** 回收站标记：非 null 表示已删除 */
@@ -54,6 +56,8 @@ export interface ExportDoc {
   prompt?: string | null
   groups: {
     name: string
+    /** 分组描述；旧版导出文件无此字段 */
+    description?: string
     tasks: {
       title: string
       description: string

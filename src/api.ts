@@ -83,12 +83,19 @@ export async function listGroups(): Promise<Group[]> {
   return r.groups
 }
 
-export function createGroup(name: string): Promise<Group> {
-  return request<Group>('/groups', { method: 'POST', body: JSON.stringify({ name }) })
+export function createGroup(name: string, description: string): Promise<Group> {
+  return request<Group>('/groups', {
+    method: 'POST',
+    body: JSON.stringify({ name, description }),
+  })
 }
 
-export function renameGroup(id: number, name: string): Promise<Group> {
-  return request<Group>(`/groups/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) })
+/** 更新分组：重命名 / 修改描述（只传需要改的字段） */
+export function updateGroup(
+  id: number,
+  patch: { name?: string; description?: string },
+): Promise<Group> {
+  return request<Group>(`/groups/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
 }
 
 /** 切换清单锁定：锁定后 Agent 无法通过 MCP 编辑该清单，界面编辑不受影响 */
