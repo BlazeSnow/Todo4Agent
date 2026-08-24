@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { authLogin, authRegister, authStatus, setToken } from '../api'
+import { onEnterSubmit } from '../ime'
 
 const emit = defineEmits<{
   (e: 'logged-in', username: string): void
@@ -82,14 +83,14 @@ async function doRegister() {
           label="用户名"
           autocomplete="username"
           autofocus
-          @keydown.enter="doLogin"
+          @keydown.enter="onEnterSubmit($event, doLogin)"
         />
         <v-text-field
           v-model="password"
           label="密码（至少 4 位）"
           type="password"
           autocomplete="current-password"
-          @keydown.enter="doLogin"
+          @keydown.enter="onEnterSubmit($event, doLogin)"
         />
         <v-alert v-if="errorMsg" type="error" density="compact" class="mt-2">
           {{ errorMsg }}

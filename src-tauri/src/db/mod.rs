@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 /// 默认分组名（AGENTS.md 约定）
 pub const DEFAULT_GROUP: &str = "快速清单";
+/// 系统分组「无分组」：分组被删除时其任务（含归档）移入该分组；不可删除、不可改名
+pub const NO_GROUP: &str = "无分组";
 /// 初始用户与默认密码（登录后应立即修改）
 pub const DEFAULT_ADMIN_USERNAME: &str = "admin";
 pub const DEFAULT_ADMIN_PASSWORD: &str = "admin123";
@@ -20,6 +22,8 @@ pub struct User {
 pub struct Group {
     pub id: i64,
     pub name: String,
+    /// 分组描述：说明该清单的用途（如给 Agent 的使用备注），可为空
+    pub description: String,
     pub sort_order: i64,
     pub created_at: String,
     /// 回收站标记：非 null 表示已删除（软删除）
@@ -42,6 +46,8 @@ pub struct Task {
     pub sort_order: i64,
     /// 回收站标记：非 null 表示已删除（软删除）
     pub deleted_at: Option<String>,
+    /// 归档标记：非 null 表示已归档（值为归档时间，供归档时间线展示）
+    pub archived_at: Option<String>,
 }
 
 /// 导出文档结构（与前端约定一致)
@@ -58,6 +64,9 @@ pub struct ExportDoc {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportGroup {
     pub name: String,
+    /// 分组描述；旧版导出文件无此字段，导入时视为空
+    #[serde(default)]
+    pub description: String,
     pub tasks: Vec<ExportTask>,
 }
 
@@ -108,13 +117,14 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
         r#"
         PRAGMA foreign_keys = ON;
         CREATE TABLE IF NOT EXISTS groups (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT NOT NULL,
-            sort_order INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            deleted_at TEXT,
-            user_id    INTEGER,
-            locked     INTEGER NOT NULL DEFAULT 0
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL,
+            deleted_at  TEXT,
+            user_id     INTEGER,
+            locked      INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS users (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,7 +144,8 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
             created_at  TEXT NOT NULL,
             updated_at  TEXT NOT NULL,
             sort_order  INTEGER NOT NULL DEFAULT 0,
-            deleted_at  TEXT
+            deleted_at  TEXT,
+            archived_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(group_id);
         CREATE TABLE IF NOT EXISTS settings (
@@ -154,9 +165,13 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
     )?;
     ensure_task_sort_column(&conn)?;
     ensure_deleted_columns(&conn)?;
+    ensure_task_archived_column(&conn)?;
     ensure_group_user_column(&conn)?;
     ensure_user_default_password_column(&conn)?;
     ensure_group_locked_column(&conn)?;
+    // 补列需在 name_scoped 表重建之前：重建按显式列复制（含 description），
+    // 旧库若未先补列，SELECT description 会失败
+    ensure_group_description_column(&conn)?;
     ensure_group_name_scoped(&conn)?;
     seed_default_admin(&conn)?;
     Ok(conn)
@@ -196,6 +211,18 @@ fn ensure_deleted_columns(conn: &Connection) -> SqlResult<()> {
     Ok(())
 }
 
+/// 为旧数据库迁移 tasks.archived_at 列（任务归档标记）
+fn ensure_task_archived_column(conn: &Connection) -> SqlResult<()> {
+    let has: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'archived_at'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|n| n > 0)?;
+    if !has {
+        conn.execute("ALTER TABLE tasks ADD COLUMN archived_at TEXT", [])?;
+    }
+    Ok(())
+}
+
 /// 为旧数据库迁移 groups.user_id 列（多用户归属）
 fn ensure_group_user_column(conn: &Connection) -> SqlResult<()> {
     let has: bool = conn
@@ -222,6 +249,21 @@ fn ensure_group_locked_column(conn: &Connection) -> SqlResult<()> {
     }
     Ok(())
 }
+/// 为旧数据库迁移 groups.description 列（分组描述）；须在 ensure_group_name_scoped 之前执行
+fn ensure_group_description_column(conn: &Connection) -> SqlResult<()> {
+    let has: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('groups') WHERE name = 'description'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|n| n > 0)?;
+    if !has {
+        conn.execute(
+            "ALTER TABLE groups ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
 /// 为旧数据库迁移 users.default_password 列（初始密码标记）
 fn ensure_user_default_password_column(conn: &Connection) -> SqlResult<()> {
     let has: bool = conn
@@ -254,16 +296,17 @@ fn ensure_group_name_scoped(conn: &Connection) -> SqlResult<()> {
             r#"
             BEGIN;
             CREATE TABLE groups_migrate (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                name       TEXT NOT NULL,
-                sort_order INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                deleted_at TEXT,
-                user_id    INTEGER,
-                locked     INTEGER NOT NULL DEFAULT 0
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                sort_order  INTEGER NOT NULL DEFAULT 0,
+                created_at  TEXT NOT NULL,
+                deleted_at  TEXT,
+                user_id     INTEGER,
+                locked      INTEGER NOT NULL DEFAULT 0
             );
-            INSERT INTO groups_migrate (id, name, sort_order, created_at, deleted_at, user_id, locked)
-                SELECT id, name, sort_order, created_at, deleted_at, user_id, locked FROM groups;
+            INSERT INTO groups_migrate (id, name, description, sort_order, created_at, deleted_at, user_id, locked)
+            SELECT id, name, description, sort_order, created_at, deleted_at, user_id, locked FROM groups;
             DROP TABLE groups;
             ALTER TABLE groups_migrate RENAME TO groups;
             COMMIT;
@@ -282,6 +325,7 @@ fn ensure_group_name_scoped(conn: &Connection) -> SqlResult<()> {
 /// 初始化时播种初始用户 admin（仅当尚无任何用户）。admin 创建时接管
 /// 本地模式遗留的无主数据；若接管后仍无任何分组，播种默认分组「快速清单」。
 /// 已有用户的数据库不会重复播种（用户彻底删除默认分组后不会再现）。
+/// 最后为所有存量用户补齐系统分组「无分组」（新用户在 create_user 时已播种）。
 fn seed_default_admin(conn: &Connection) -> SqlResult<()> {
     if user_count(conn)? == 0 {
         let user = create_user(conn, DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD)?;
@@ -290,8 +334,18 @@ fn seed_default_admin(conn: &Connection) -> SqlResult<()> {
             params![user.id],
         )?;
         if list_groups(conn, user.id)?.is_empty() {
-            create_group(conn, user.id, DEFAULT_GROUP)?;
+            create_group(conn, user.id, DEFAULT_GROUP, "")?;
         }
+    }
+    ensure_no_group_all_users(conn)
+}
+
+/// 为数据库中的每个用户补齐系统分组「无分组」（幂等；缺失时创建）
+fn ensure_no_group_all_users(conn: &Connection) -> SqlResult<()> {
+    let mut stmt = conn.prepare("SELECT id FROM users")?;
+    let ids: Vec<i64> = stmt.query_map([], |row| row.get(0))?.collect::<SqlResult<_>>()?;
+    for id in ids {
+        ensure_no_group(conn, id)?;
     }
     Ok(())
 }
@@ -324,10 +378,11 @@ fn group_from_row(row: &rusqlite::Row<'_>) -> SqlResult<Group> {
     Ok(Group {
         id: row.get(0)?,
         name: row.get(1)?,
-        sort_order: row.get(2)?,
-        created_at: row.get(3)?,
-        deleted_at: row.get(4)?,
-        locked: row.get(5)?,
+        description: row.get(2)?,
+        sort_order: row.get(3)?,
+        created_at: row.get(4)?,
+        deleted_at: row.get(5)?,
+        locked: row.get(6)?,
     })
 }
 
@@ -343,14 +398,15 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> SqlResult<Task> {
         updated_at: row.get(7)?,
         sort_order: row.get(8)?,
         deleted_at: row.get(9)?,
+        archived_at: row.get(10)?,
     })
 }
 
 /// 分组查询的列顺序必须与 group_from_row 一致
-const GROUP_COLS: &str = "id, name, sort_order, created_at, deleted_at, locked";
+const GROUP_COLS: &str = "id, name, description, sort_order, created_at, deleted_at, locked";
 /// 任务查询的列顺序必须与 task_from_row 一致
 const TASK_COLS: &str =
-    "id, group_id, title, description, status, due_at, created_at, updated_at, sort_order, deleted_at";
+    "id, group_id, title, description, status, due_at, created_at, updated_at, sort_order, deleted_at, archived_at";
 
 
 pub mod export;
@@ -386,25 +442,31 @@ mod tests {
     fn seeds_default_group() {
         let (c, admin) = test_conn();
         let groups = list_groups(&c, admin).unwrap();
-        assert_eq!(groups.len(), 1);
+        // 默认分组「快速清单」在前，系统分组「无分组」随后
+        assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].name, DEFAULT_GROUP);
+        assert_eq!(groups[1].name, NO_GROUP);
+        assert_eq!(groups[1].description, "");
     }
 
     #[test]
     fn existing_db_does_not_reseed_default_group() {
         let path = std::env::temp_dir().join(format!("todo4agent-reseed-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
-        // 首次打开播种 admin 与默认分组；用户彻底删除默认分组
+        // 首次打开播种 admin、默认分组与系统分组；用户彻底删除默认分组
         {
             let c = open(&path).unwrap();
             let admin = list_users(&c).unwrap()[0].id;
             let gid = list_groups(&c, admin).unwrap()[0].id;
             purge_group(&c, admin, gid).unwrap();
         }
-        // 重新打开：不再播种默认分组，也不产生无主分组
+        // 重新打开：不再播种默认分组，也不产生无主分组；
+        // 系统分组「无分组」不可删除、始终保留
         let c = open(&path).unwrap();
         let admin = list_users(&c).unwrap()[0].id;
-        assert!(list_groups(&c, admin).unwrap().is_empty());
+        let groups = list_groups(&c, admin).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].name, NO_GROUP);
         let orphans: i64 = c
             .query_row("SELECT COUNT(*) FROM groups WHERE user_id IS NULL", [], |r| r.get(0))
             .unwrap();
@@ -435,12 +497,14 @@ mod tests {
             )
             .unwrap();
         }
-        // 打开：播种 admin 并接管无主数据，不再追加默认分组
+        // 打开：播种 admin 并接管无主数据，不再追加默认分组；
+        // 系统分组「无分组」补齐到分组末尾
         let c = open(&path).unwrap();
         let admin = list_users(&c).unwrap()[0].id;
         let groups = list_groups(&c, admin).unwrap();
-        assert_eq!(groups.len(), 1);
+        assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].name, "遗留分组");
+        assert_eq!(groups[1].name, NO_GROUP);
         drop(c);
         let _ = std::fs::remove_file(&path);
     }
@@ -509,11 +573,11 @@ mod tests {
         assert_eq!(task_count, 1);
 
         // 回收站中的名字可以复用；其他用户可以用同名分组
-        let reused = create_group(&c, 1, "删除组").unwrap();
+        let reused = create_group(&c, 1, "删除组", "").unwrap();
         assert_ne!(reused.id, 2);
-        create_group(&c, 2, "旧组").unwrap();
+        create_group(&c, 2, "旧组", "").unwrap();
         // 同一用户的活动分组仍然不能重名
-        assert!(create_group(&c, 1, "删除组").is_err());
+        assert!(create_group(&c, 1, "删除组", "").is_err());
 
         drop(c);
         let _ = std::fs::remove_file(&path);

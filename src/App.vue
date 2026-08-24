@@ -11,6 +11,7 @@ import SettingsView from './components/SettingsView.vue'
 import MCPView from './components/MCPView.vue'
 import PromptView from './components/PromptView.vue'
 import TrashView from './components/TrashView.vue'
+import ArchiveView from './components/ArchiveView.vue'
 import LoginView from './components/LoginView.vue'
 import {
   authLogout,
@@ -20,12 +21,15 @@ import {
   deleteGroup,
   deleteTask,
   emptyTrash,
+  archiveTask,
+  listArchive,
   listGroups,
   listTasks,
   listTrash,
   purgeGroup,
   purgeTask,
-  renameGroup,
+  unarchiveTask,
+  updateGroup,
   reorderGroups,
   reorderTasks,
   restoreGroup,
@@ -58,9 +62,9 @@ const groupDialog = ref(false)
 const groupDialogMode = ref<'create' | 'rename'>('create')
 const groupDialogTarget = ref<Group | null>(null)
 const confirmDialog = ref(false)
-type TrashAction = 'group' | 'task' | 'purgeGroup' | 'purgeTask' | 'emptyTrash'
+type TrashAction = 'group' | 'task' | 'purgeGroup' | 'purgeTask' | 'emptyTrash' | 'archivedTask'
 const confirmAction = ref<{ type: TrashAction; id?: number } | null>(null)
-const currentView = ref<'tasks' | 'settings' | 'mcp' | 'prompt' | 'trash'>('tasks')
+const currentView = ref<'tasks' | 'settings' | 'mcp' | 'prompt' | 'archive' | 'trash'>('tasks')
 
 // ---------- 认证门控 ----------
 
@@ -115,8 +119,20 @@ async function loadTrash() {
 }
 
 watch(currentView, (v) => {
+  if (v === 'archive') loadArchive()
   if (v === 'trash') loadTrash()
 })
+
+// 归档
+const archiveTasks = ref<Task[]>([])
+
+async function loadArchive() {
+  try {
+    archiveTasks.value = await listArchive()
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
 
 const selectedGroup = computed(
   () => groups.value.find((g) => g.id === selectedGroupId.value) ?? null,
@@ -165,6 +181,7 @@ watch(selectedGroupId, loadTasks)
 async function refresh() {
   await loadGroups()
   if (selectedGroupId.value != null) await loadTasks()
+  if (currentView.value === 'archive') await loadArchive()
   if (currentView.value === 'trash') await loadTrash()
 }
 
@@ -207,14 +224,14 @@ function openRenameGroup(group: Group) {
   groupDialog.value = true
 }
 
-async function onGroupDialogSave(name: string) {
+async function onGroupDialogSave(name: string, description: string) {
   try {
     if (groupDialogMode.value === 'create') {
-      await createGroup(name)
+      await createGroup(name, description)
       notify(`已创建分组：${name}`)
     } else if (groupDialogTarget.value) {
-      await renameGroup(groupDialogTarget.value.id, name)
-      notify(`已重命名分组：${name}`)
+      await updateGroup(groupDialogTarget.value.id, { name, description })
+      notify(`已保存分组修改：${name}`)
     }
     await loadGroups()
   } catch (e) {
@@ -252,6 +269,35 @@ function openCreateTask() {
 function openEditTask(task: Task) {
   editingTask.value = task
   taskDialog.value = true
+}
+
+/** 归档任务：从清单移入归档（时间线保留，可恢复） */
+async function onArchiveTask(task: Task) {
+  try {
+    await archiveTask(task.id)
+    notify(`已归档：${task.title}`)
+    await loadTasks()
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
+/** 取消归档：任务回到原清单 */
+async function onUnarchiveTask(task: Task) {
+  try {
+    await unarchiveTask(task.id)
+    notify(`已取消归档：${task.title}`)
+    await loadArchive()
+    // 任务回到清单：当前分组列表可能仍是旧数据，一并刷新
+    await loadTasks()
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
+function onRemoveArchivedTask(task: Task) {
+  confirmAction.value = { type: 'archivedTask', id: task.id }
+  confirmDialog.value = true
 }
 
 async function onTaskDialogSave(input: TaskInput) {
@@ -317,15 +363,17 @@ async function onReorderGroups(groupIds: number[]) {
 const confirmMessage = computed(() => {
   switch (confirmAction.value?.type) {
     case 'group':
-      return '删除后分组及其任务将移入回收站，可随时恢复。确定删除吗？'
+      return '删除后组内任务（含已归档）将移入「无分组」，分组移入回收站。确定删除吗？'
     case 'task':
       return '删除后任务将移入回收站，可随时恢复。确定删除吗？'
     case 'purgeGroup':
-      return '将彻底删除该分组及其任务，不可恢复。确定继续吗？'
+      return '将彻底删除该分组，不可恢复；其任务已在删除时移入「无分组」。确定继续吗？'
     case 'purgeTask':
       return '将彻底删除该任务，不可恢复。确定继续吗？'
     case 'emptyTrash':
-      return '将彻底删除回收站中的所有内容，不可恢复。确定继续吗？'
+      return '将彻底删除回收站中的所有分组与任务，不可恢复。确定继续吗？'
+    case 'archivedTask':
+      return '任务将移入回收站，可随时恢复。确定移出归档吗？'
     default:
       return ''
   }
@@ -361,6 +409,11 @@ async function doConfirm() {
         await emptyTrash()
         notify('回收站已清空')
         await loadTrash()
+        break
+      case 'archivedTask':
+        await deleteTask(action.id!)
+        notify('已移入回收站')
+        await loadArchive()
         break
     }
   } catch (e) {
@@ -488,6 +541,7 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
         @mcp="currentView = 'mcp'"
         @prompt="currentView = 'prompt'"
         @settings="currentView = 'settings'"
+        @archive="currentView = 'archive'"
         @trash="currentView = 'trash'"
         @reorder="onReorderGroups"
       />
@@ -500,10 +554,12 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           :tasks="tasks"
           :loading="loadingTasks"
           :group-name="selectedGroup?.name ?? null"
+          :group-description="selectedGroup?.description || null"
           @create="openCreateTask"
           @edit="openEditTask"
           @toggle="onToggleTask"
           @remove="onDeleteTask"
+          @archive="onArchiveTask"
           @reorder="onReorderTasks"
         />
         <SettingsView
@@ -515,6 +571,14 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           @error="notify"
           @notify="notify"
         />
+        <ArchiveView
+          v-else-if="currentView === 'archive'"
+          :tasks="archiveTasks"
+          :active-groups="groups"
+          @restore="onUnarchiveTask"
+          @remove="onRemoveArchivedTask"
+        />
+
         <TrashView
           v-else-if="currentView === 'trash'"
           :groups="trashGroups"

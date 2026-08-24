@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { Group } from '../types'
+import { NO_GROUP_NAME, type Group } from '../types'
 import ContextMenu, { type ContextMenuItem } from './ContextMenu.vue'
 
 const props = defineProps<{
@@ -8,7 +8,7 @@ const props = defineProps<{
   selectedId: number | null
   loading: boolean
   /** 当前主视图，用于侧边栏底部入口的选中高亮 */
-  activeView: 'tasks' | 'settings' | 'mcp' | 'prompt' | 'trash'
+  activeView: 'tasks' | 'settings' | 'mcp' | 'prompt' | 'archive' | 'trash'
 }>()
 
 const emit = defineEmits<{
@@ -20,6 +20,7 @@ const emit = defineEmits<{
   (e: 'mcp'): void
   (e: 'prompt'): void
   (e: 'settings'): void
+  (e: 'archive'): void
   (e: 'trash'): void
   (e: 'reorder', groupIds: number[]): void
 }>()
@@ -67,13 +68,25 @@ function openGroupCtx(group: Group, e: MouseEvent) {
         action: () => moveGroup(group, 1),
       },
       { divider: true },
-      { label: '重命名', icon: 'mdi-pencil', action: () => emit('rename', group) },
+      // 系统分组「无分组」承载被删分组的任务，不可编辑/删除
+      ...(group.name === NO_GROUP_NAME
+        ? []
+        : [{ label: '编辑分组', icon: 'mdi-pencil', action: () => emit('rename', group) }]),
       {
         label: group.locked ? '解锁清单' : '锁定清单',
         icon: group.locked ? 'mdi-lock-open' : 'mdi-lock',
         action: () => emit('toggle-lock', group),
       },
-      { label: '删除', icon: 'mdi-delete', color: 'error', action: () => emit('delete', group) },
+      ...(group.name === NO_GROUP_NAME
+        ? []
+        : [
+            {
+              label: '删除',
+              icon: 'mdi-delete',
+              color: 'error',
+              action: () => emit('delete', group),
+            },
+          ]),
     ],
   }
 }
@@ -120,8 +133,10 @@ function openGroupCtx(group: Group, e: MouseEvent) {
             />
             <v-divider />
             <v-list-item
+              v-if="group.name !== NO_GROUP_NAME"
               prepend-icon="mdi-pencil"
-              title="重命名"
+              title="编辑分组"
+              subtitle="名称与描述"
               @click="$emit('rename', group)"
             />
             <v-list-item
@@ -131,6 +146,7 @@ function openGroupCtx(group: Group, e: MouseEvent) {
               @click="$emit('toggle-lock', group)"
             />
             <v-list-item
+              v-if="group.name !== NO_GROUP_NAME"
               prepend-icon="mdi-delete"
               title="删除"
               color="error"
@@ -142,6 +158,13 @@ function openGroupCtx(group: Group, e: MouseEvent) {
     </v-list-item>
 
     <v-list-item prepend-icon="mdi-plus" title="新增分组" @click="$emit('create')" />
+
+    <v-list-item
+      prepend-icon="mdi-archive-outline"
+      title="归档"
+      :active="activeView === 'archive'"
+      @click="$emit('archive')"
+    />
 
     <v-list-item
       prepend-icon="mdi-trash-can-outline"

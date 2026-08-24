@@ -68,32 +68,42 @@ function overdue(task: Task): boolean {
 
     <template v-if="groups.length > 0">
       <div class="text-subtitle-2 text-medium-emphasis mb-2">已删除的分组</div>
-      <v-card v-for="group in groups" :key="group.id" class="mb-2" variant="outlined">
-        <v-list-item>
-          <template #prepend>
-            <v-icon icon="mdi-folder-remove-outline" />
-          </template>
-          <v-list-item-title>{{ group.name }}</v-list-item-title>
-          <v-list-item-subtitle>删除于 {{ formatTime(group.deleted_at!) }}</v-list-item-subtitle>
-          <template #append>
-            <v-btn
-              icon="mdi-restore"
-              size="small"
-              variant="text"
-              title="恢复分组及其任务"
-              @click="$emit('restore', 'group', group.id)"
-            />
-            <v-btn
-              icon="mdi-delete-forever"
-              size="small"
-              variant="text"
-              color="error"
-              title="彻底删除分组及其任务"
-              @click="$emit('purge', 'group', group.id)"
-            />
-          </template>
-        </v-list-item>
-      </v-card>
+      <!-- 与任务卡片同一套样式（styles/task-card.css），左端为文件夹图标，
+           右端为恢复/彻底删除，信息 pill 展示删除时间与任务去向提示 -->
+      <div v-for="group in groups" :key="group.id" class="task-item">
+        <v-icon icon="mdi-folder-remove-outline" size="18" class="task-lead" color="grey" />
+        <div class="task-main">
+          <div class="task-title">{{ group.name }}</div>
+          <div v-if="group.description" class="task-desc">{{ group.description }}</div>
+          <div class="task-pills">
+            <span class="task-pill">
+              <i class="mdi mdi-trash-can-outline"></i>
+              删除于 {{ formatTime(group.deleted_at!) }}
+            </span>
+            <span class="task-pill">
+              <i class="mdi mdi-folder-move-outline"></i>
+              组内任务已移入「无分组」
+            </span>
+          </div>
+        </div>
+        <div class="task-actions">
+          <v-btn
+            icon="mdi-restore"
+            size="small"
+            variant="text"
+            title="恢复分组"
+            @click="$emit('restore', 'group', group.id)"
+          />
+          <v-btn
+            icon="mdi-delete-forever"
+            size="small"
+            variant="text"
+            color="error"
+            title="彻底删除分组"
+            @click="$emit('purge', 'group', group.id)"
+          />
+        </div>
+      </div>
     </template>
 
     <template v-if="tasks.length > 0">

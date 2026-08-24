@@ -1,3 +1,5 @@
+# https://github.com/marketplace/actions/tauri-action
+
 name: Release
 
 on:
@@ -14,55 +16,58 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - platform: macos-latest
-        - platform: ubuntu-latest
-        - platform: windows-latest
+        - platform: 'macos-latest' # for Arm based macs (M1 and above).
+          args: '--target aarch64-apple-darwin'
+        - platform: 'macos-latest' # for Intel based macs.
+          args: '--target x86_64-apple-darwin'
+        - platform: 'ubuntu-22.04'
+          args: ''
+        - platform: 'windows-latest'
+          args: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
     - uses: actions/checkout@v7
 
-    - name: Check version consistency
+    - name: check version consistency
       shell: bash
       run: bash ci/check-version.sh "${GITHUB_REF_NAME#v}"
 
-    - name: Install Linux dependencies
-      if: matrix.platform == 'ubuntu-latest'
-      run: bash ci/linux-deps.sh
-
-    - name: Setup Node
+    - name: setup node
       uses: actions/setup-node@v7
       with:
         node-version: 26
 
-    - name: Setup pnpm
+    - name: setup pnpm
       uses: pnpm/action-setup@v6
       with:
         version: 11
 
-    - uses: dtolnay/rust-toolchain@stable
-    - uses: swatinem/rust-cache@v2
+    - name: install Rust stable
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
+        targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+    - name: rust cache
+      uses: swatinem/rust-cache@v2
       with:
         workspaces: src-tauri
 
-    - name: Install frontend dependencies
+    - name: install dependencies (ubuntu only)
+      if: matrix.platform == 'ubuntu-22.04' # This must match the platform value defined above.
+      run: bash ci/linux-deps.sh
+
+    - name: install frontend dependencies
       run: pnpm install --frozen-lockfile
 
-    # beforeBuildCommand 会先执行 pnpm build（Vite），再编译并打包 Tauri。
-    # Windows MSI 的版本由 tauri.conf.json > bundle.windows.wix.version 单独指定（数字格式）
-    - name: Build and bundle
-      run: pnpm tauri build
-
-    - name: Create or update GitHub Release
-      uses: ncipollo/release-action@v1
+    - uses: tauri-apps/tauri-action@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        tag: ${{ github.ref_name }}
-        name: Todo4Agent ${{ github.ref_name }}
+        tagName: ${{ github.ref_name }}
+        releaseName: Todo4Agent ${{ github.ref_name }}
+        releaseBody: 完整更新日志见 [CHANGELOG.md](https://github.com/BlazeSnow/Todo4Agent/blob/main/CHANGELOG.md)
         prerelease: ${{ contains(github.ref_name, '-beta') }}
-        body: 完整更新日志见 [CHANGELOG.md](https://github.com/BlazeSnow/Todo4Agent/blob/main/CHANGELOG.md)
-        # 多平台并行构建：release 可能已被其他平台创建，允许更新并替换产物
-        allowUpdates: true
-        replacesArtifacts: true
-        artifactErrorsFailBuild: false
-        artifacts: "src-tauri/target/release/bundle/**/*.msi,src-tauri/target/release/bundle/**/*.exe,src-tauri/target/release/bundle/**/*.dmg,src-tauri/target/release/bundle/**/*.deb,src-tauri/target/release/bundle/**/*.AppImage,src-tauri/target/release/bundle/**/*.rpm"
+        uploadUpdaterJson: false
+        args: ${{ matrix.args }}

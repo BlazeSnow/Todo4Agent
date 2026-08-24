@@ -57,7 +57,7 @@ Todo4Agent/
 ├── public/                 # 静态资源：icon.svg（WebUI favicon 与顶栏 logo）
 ├── src-tauri/              # Rust 后端（Tauri 2）
 │   ├── src/
-│   │   ├── main.rs         # 入口：tauri 桌面（含系统托盘）/ serve / mcp / help / version 模式
+│   │   ├── main.rs         # 入口：tauri 桌面（含系统托盘、单实例）/ serve / mcp / help / version 模式
 │   │   ├── auth.rs         # 密码盐与哈希
 │   │   ├── api/            # axum HTTP API（认证、分组、任务、回收站、设置）
 │   │   ├── db/             # SQLite 数据层（多用户、会话、导出）

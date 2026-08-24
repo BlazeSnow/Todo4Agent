@@ -19,14 +19,33 @@ pub fn list_trash(conn: &Connection, user_id: i64) -> SqlResult<(Vec<Group>, Vec
     Ok((groups, tasks))
 }
 
-/// 从回收站恢复任务；不存在、未删除或不属于该用户返回 Ok(false)
+/// 从回收站恢复任务（原分组已被删除时回落到系统分组「无分组」）；
+/// 不存在、未删除或不属于该用户返回 Ok(false)
 pub fn restore_task(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> {
-    let n = conn.execute(
-        "UPDATE tasks SET deleted_at = NULL, updated_at = ?1
-         WHERE id = ?2 AND deleted_at IS NOT NULL
-           AND group_id IN (SELECT id FROM groups WHERE user_id = ?3)",
-        params![now(), id, user_id],
+    let tx = conn.unchecked_transaction()?;
+    let group: Option<(i64, Option<String>)> = tx
+        .query_row(
+            "SELECT t.group_id, g.deleted_at FROM tasks t
+             JOIN groups g ON g.id = t.group_id
+             WHERE t.id = ?1 AND t.deleted_at IS NOT NULL AND g.user_id = ?2",
+            params![id, user_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((group_id, group_deleted_at)) = group else {
+        return Ok(false);
+    };
+    let target = if group_deleted_at.is_some() {
+        ensure_no_group(&tx, user_id)?
+    } else {
+        group_id
+    };
+    let n = tx.execute(
+        "UPDATE tasks SET deleted_at = NULL, updated_at = ?1, group_id = ?2
+         WHERE id = ?3 AND deleted_at IS NOT NULL",
+        params![now(), target, id],
     )?;
+    tx.commit()?;
     Ok(n > 0)
 }
 
@@ -40,8 +59,10 @@ pub fn purge_task(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> {
     Ok(n > 0)
 }
 
-/// 从回收站恢复分组及其下任务（仅限该用户的回收站项）。
-/// 原名被该用户的现有分组占用时自动重命名为「原名 (2)」「原名 (3)」……
+/// 从回收站恢复分组（仅限该用户的回收站项）。
+/// 新版删除流程下组内任务已在删除时移入「无分组」，恢复的是空分组；
+/// 旧版数据中随组删除的任务仍随恢复还原。原名被该用户的现有分组占用时
+/// 自动重命名为「原名 (2)」「原名 (3)」……
 /// 返回值：Ok(None) = 不在回收站；Ok(Some(None)) = 原名恢复；
 /// Ok(Some(Some(new))) = 恢复成功并重命名为 new
 pub fn restore_group(
@@ -102,13 +123,31 @@ pub fn restore_group(
     }))
 }
 
-/// 彻底删除分组及其下任务（物理删除，不可恢复；仅限该用户的分组）
+/// 彻底删除分组（物理删除，不可恢复；仅限该用户回收站中的分组）。
+/// 新版删除流程下任务已随删除移入「无分组」，此处仅清理旧版数据遗留；
+/// 系统分组「无分组」不可清理
 pub fn purge_group(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> {
     let tx = conn.unchecked_transaction()?;
+    let name: Option<String> = tx
+        .query_row(
+            "SELECT name FROM groups WHERE id = ?1 AND user_id = ?2",
+            params![id, user_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(name) = name else {
+        return Ok(false);
+    };
+    if name == NO_GROUP {
+        return Ok(false);
+    }
+    // 兼容旧版数据：仍存活（未删除）的任务移入「无分组」后，再清理组内已删除任务
+    let no_group = ensure_no_group(&tx, user_id)?;
     tx.execute(
-        "DELETE FROM tasks WHERE group_id = ?1 AND group_id IN (SELECT id FROM groups WHERE user_id = ?2)",
-        params![id, user_id],
+        "UPDATE tasks SET group_id = ?1 WHERE group_id = ?2 AND deleted_at IS NULL",
+        params![no_group, id],
     )?;
+    tx.execute("DELETE FROM tasks WHERE group_id = ?1", params![id])?;
     let n = tx.execute(
         "DELETE FROM groups WHERE id = ?1 AND user_id = ?2",
         params![id, user_id],
@@ -117,9 +156,17 @@ pub fn purge_group(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> 
     Ok(n > 0)
 }
 
-/// 清空回收站：彻底删除该用户所有已删除的分组与任务
+/// 清空回收站：彻底删除该用户所有已删除的分组与任务。
+/// 兼容旧版数据：回收站分组下仍存活的任务移入「无分组」，不随分组清理
 pub fn empty_trash(conn: &Connection, user_id: i64) -> SqlResult<()> {
     let tx = conn.unchecked_transaction()?;
+    let no_group = ensure_no_group(&tx, user_id)?;
+    tx.execute(
+        "UPDATE tasks SET group_id = ?1
+         WHERE deleted_at IS NULL
+           AND group_id IN (SELECT id FROM groups WHERE user_id = ?2 AND deleted_at IS NOT NULL)",
+        params![no_group, user_id],
+    )?;
     tx.execute(
         "DELETE FROM tasks WHERE deleted_at IS NOT NULL
          AND group_id IN (SELECT id FROM groups WHERE user_id = ?1)",
@@ -164,22 +211,30 @@ mod tests {
         assert!(purge_task(&c, admin, t.id).unwrap());
         assert!(list_trash(&c, admin).unwrap().1.is_empty());
 
-        // 分组软删级联 + 恢复
-        let g = create_group(&c, admin, "回收组").unwrap();
+        // 分组软删：组内任务移入「无分组」，不进回收站；恢复得到空分组
+        let no_group = list_groups(&c, admin).unwrap().iter().find(|g| g.name == NO_GROUP).unwrap().id;
+        let g = create_group(&c, admin, "回收组", "").unwrap();
         create_task(&c, admin, g.id, "组内任务", "", None).unwrap();
         assert!(delete_group(&c, admin, g.id).unwrap());
         let (groups, tasks) = list_trash(&c, admin).unwrap();
         assert_eq!(groups.len(), 1);
-        assert_eq!(tasks.len(), 1);
+        assert!(tasks.is_empty());
+        assert_eq!(list_tasks(&c, admin, Some(no_group)).unwrap().len(), 1);
         assert!(restore_group(&c, admin, g.id).unwrap().is_some());
-        assert_eq!(list_groups(&c, admin).unwrap().len(), 2);
-        assert_eq!(list_tasks(&c, admin, Some(g.id)).unwrap().len(), 1);
+        assert_eq!(list_groups(&c, admin).unwrap().len(), 3);
+        assert!(list_tasks(&c, admin, Some(g.id)).unwrap().is_empty());
+        assert_eq!(list_tasks(&c, admin, Some(no_group)).unwrap().len(), 1);
 
-        // 分组在回收站时其任务再删除会怎样：恢复后任务仍在
-        let g2 = create_group(&c, admin, "再删组").unwrap();
+        // 系统分组「无分组」不可删除、不可彻底删除
+        assert!(!delete_group(&c, admin, no_group).unwrap());
+        assert!(!purge_group(&c, admin, no_group).unwrap());
+
+        // 彻底删除分组不影响已移入「无分组」的任务
+        let g2 = create_group(&c, admin, "再删组", "").unwrap();
         delete_group(&c, admin, g2.id).unwrap();
         assert!(purge_group(&c, admin, g2.id).unwrap());
         assert!(list_trash(&c, admin).unwrap().0.iter().all(|x| x.id != g2.id));
+        assert_eq!(list_tasks(&c, admin, Some(no_group)).unwrap().len(), 1);
 
         // 清空回收站
         delete_group(&c, admin, g.id).unwrap();
@@ -187,28 +242,68 @@ mod tests {
         let (groups, tasks) = list_trash(&c, admin).unwrap();
         assert!(groups.is_empty());
         assert!(tasks.is_empty());
+        assert_eq!(list_tasks(&c, admin, Some(no_group)).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn tasks_move_to_no_group_on_group_deletion() {
+        let (c, admin) = test_conn();
+        let no_group = list_groups(&c, admin).unwrap().iter().find(|g| g.name == NO_GROUP).unwrap().id;
+        let g = create_group(&c, admin, "待删组", "").unwrap();
+        let active = create_task(&c, admin, g.id, "进行中", "", None).unwrap();
+        let archived = create_task(&c, admin, g.id, "已完成", "", None).unwrap();
+        archive_task(&c, admin, archived.id).unwrap();
+
+        // 删除分组：未归档与已归档任务都移入「无分组」，不进回收站、不丢失
+        assert!(delete_group(&c, admin, g.id).unwrap());
+        let (_, trash_tasks) = list_trash(&c, admin).unwrap();
+        assert!(trash_tasks.is_empty());
+        let active_list = list_tasks(&c, admin, Some(no_group)).unwrap();
+        assert!(active_list.iter().any(|t| t.id == active.id));
+        let arc = list_archived(&c, admin).unwrap();
+        assert_eq!(arc.len(), 1);
+        assert_eq!(arc[0].id, archived.id);
+        assert_eq!(arc[0].group_id, no_group);
+
+        // 取消归档：任务已在「无分组」存活，直接回到该分组
+        assert!(unarchive_task(&c, admin, archived.id).unwrap());
+        assert!(list_tasks(&c, admin, Some(no_group)).unwrap().iter().any(|t| t.id == archived.id));
+
+        // 彻底删除分组与清空回收站均不影响「无分组」中的任务
+        archive_task(&c, admin, archived.id).unwrap();
+        assert!(purge_group(&c, admin, g.id).unwrap());
+        let g2 = create_group(&c, admin, "清空组", "").unwrap();
+        delete_group(&c, admin, g2.id).unwrap();
+        empty_trash(&c, admin).unwrap();
+        assert_eq!(list_archived(&c, admin).unwrap().len(), 1);
+        assert_eq!(list_tasks(&c, admin, Some(no_group)).unwrap().len(), 1);
+
+        // 系统分组不可改名
+        assert!(rename_group(&c, admin, no_group, "改名").unwrap().is_none());
     }
 
     #[test]
     fn restore_group_name_conflict_renames() {
         let (c, admin) = test_conn();
-        let g = create_group(&c, admin, "项目").unwrap();
+        let g = create_group(&c, admin, "项目", "").unwrap();
         create_task(&c, admin, g.id, "任务A", "", None).unwrap();
         delete_group(&c, admin, g.id).unwrap();
 
         // 原名被新分组占用 → 恢复时自动重命名
-        create_group(&c, admin, "项目").unwrap();
+        create_group(&c, admin, "项目", "").unwrap();
         let out = restore_group(&c, admin, g.id).unwrap().unwrap();
         assert_eq!(out, Some("项目 (2)".to_string()));
 
         let groups = list_groups(&c, admin).unwrap();
         assert!(groups.iter().any(|x| x.name == "项目"));
         let restored = groups.iter().find(|x| x.name == "项目 (2)").unwrap();
-        // 组内任务随分组一起恢复
-        assert_eq!(list_tasks(&c, admin, Some(restored.id)).unwrap().len(), 1);
+        // 组内任务在删除时已移入「无分组」，恢复得到空分组
+        assert!(list_tasks(&c, admin, Some(restored.id)).unwrap().is_empty());
+        let no_group = groups.iter().find(|x| x.name == NO_GROUP).unwrap().id;
+        assert!(list_tasks(&c, admin, Some(no_group)).unwrap().iter().any(|t| t.title == "任务A"));
 
         // 无冲突时原名恢复
-        let g2 = create_group(&c, admin, "空组").unwrap();
+        let g2 = create_group(&c, admin, "空组", "").unwrap();
         delete_group(&c, admin, g2.id).unwrap();
         assert_eq!(restore_group(&c, admin, g2.id).unwrap().unwrap(), None);
 

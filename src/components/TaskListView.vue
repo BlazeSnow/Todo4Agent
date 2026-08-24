@@ -8,11 +8,14 @@ const props = defineProps<{
   loading: boolean
   /** 当前分组名（未选择时为 null） */
   groupName: string | null
+  /** 当前分组描述（未设置或未选择时为 null） */
+  groupDescription: string | null
 }>()
 
 const emit = defineEmits<{
   (e: 'create'): void
   (e: 'edit', task: Task): void
+  (e: 'archive', task: Task): void
   (e: 'toggle', task: Task): void
   (e: 'remove', task: Task): void
   (e: 'reorder', taskIds: number[]): void
@@ -109,6 +112,11 @@ function openTaskCtx(task: Task, e: MouseEvent) {
       { divider: true },
       { label: '编辑', icon: 'mdi-pencil', action: () => emit('edit', task) },
       {
+        label: '归档',
+        icon: 'mdi-archive-arrow-down-outline',
+        action: () => emit('archive', task),
+      },
+      {
         label: '删除',
         icon: 'mdi-delete',
         color: 'error',
@@ -123,6 +131,15 @@ const sortOptions: { value: SortMode | null; label: string }[] = [
   { value: 'time', label: '按截止时间' },
   { value: 'title', label: '按标题' },
 ]
+
+// ---------- 双击编辑 ----------
+
+/** 双击卡片打开编辑；起始于勾选框或操作按钮的双击不触发（保留其原生行为） */
+function onDblClick(task: Task, e: MouseEvent) {
+  const el = e.target as HTMLElement
+  if (el.closest('.task-check, .task-actions')) return
+  emit('edit', task)
+}
 
 // ---------- 展示辅助 ----------
 
@@ -142,7 +159,10 @@ function overdue(task: Task): boolean {
 <template>
   <div>
     <div class="list-header">
-      <h2 class="group-title">{{ groupName ?? '未选择分组' }}</h2>
+      <div class="group-heading">
+        <h2 class="group-title">{{ groupName ?? '未选择分组' }}</h2>
+        <div v-if="groupDescription" class="group-desc">{{ groupDescription }}</div>
+      </div>
       <div class="header-actions">
         <v-menu>
           <template #activator="{ props }">
@@ -171,7 +191,14 @@ function overdue(task: Task): boolean {
     <div v-if="loading" class="list-loading" />
 
     <!-- 任务卡片（原生结构，样式与回收站共享，见 styles/task-card.css） -->
-    <div class="task-item" v-for="task in displayedTasks" :key="task.id" @contextmenu.stop="openTaskCtx(task, $event)">
+    <div
+      class="task-item"
+      v-for="task in displayedTasks"
+      :key="task.id"
+      :title="`双击编辑：${task.title}`"
+      @contextmenu.stop="openTaskCtx(task, $event)"
+      @dblclick="onDblClick(task, $event)"
+    >
       <input
         type="checkbox"
         class="task-check task-lead"
@@ -222,6 +249,12 @@ function overdue(task: Task): boolean {
               @click="$emit('edit', task)"
             />
             <v-list-item
+              prepend-icon="mdi-archive-arrow-down-outline"
+              title="归档"
+              subtitle="保留在归档时间线中"
+              @click="$emit('archive', task)"
+            />
+            <v-list-item
               prepend-icon="mdi-delete"
               title="删除"
               color="error"
@@ -260,10 +293,20 @@ function overdue(task: Task): boolean {
   gap: 12px;
   margin-bottom: 16px;
 }
+.group-heading {
+  min-width: 0;
+}
 .group-title {
   font-size: 18px;
   font-weight: 600;
   margin: 0;
+}
+.group-desc {
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 2px;
 }
 .header-actions {
   margin-left: auto;

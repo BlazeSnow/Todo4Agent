@@ -26,6 +26,18 @@ fn arg_opt_i64(args: &Value, key: &str) -> Result<Option<i64>, String> {
     }
 }
 
+/// 可选字符串参数：缺省 / null / 空白均视为未提供（返回 None），其余返回 trim 后的值
+fn arg_opt_str(args: &Value, key: &str) -> Result<Option<String>, String> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => {
+            let t = s.trim();
+            Ok(if t.is_empty() { None } else { Some(t.to_string()) })
+        }
+        Some(_) => Err(format!("参数错误: {key} 必须是字符串")),
+    }
+}
+
 
 
 use crate::db;
@@ -82,6 +94,11 @@ pub(super) fn tools() -> Vec<ToolDef> {
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
+            "db_path",
+            "查询当前连接的数据库文件路径（本地 SQLite，可用环境变量 TODO4AGENT_DB 覆盖）",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        ToolDef::new(
             "group_list",
             "列出所有任务分组",
             json!({ "type": "object", "properties": {} }),
@@ -91,25 +108,29 @@ pub(super) fn tools() -> Vec<ToolDef> {
             "创建任务分组；分组名不能重复",
             json!({
                 "type": "object",
-                "properties": { "name": { "type": "string", "description": "分组名（必填）" } },
+                "properties": {
+                    "name": { "type": "string", "description": "分组名（必填）" },
+                    "description": { "type": "string", "description": "分组描述（可选）：说明该清单的用途" }
+                },
                 "required": ["name"]
             }),
         ),
         ToolDef::new(
             "group_rename",
-            "重命名任务分组",
+            "重命名任务分组（可选同时更新分组描述）",
             json!({
                 "type": "object",
                 "properties": {
                     "id": { "type": "integer", "description": "分组 id" },
-                    "name": { "type": "string", "description": "新分组名（必填）" }
+                    "name": { "type": "string", "description": "新分组名（必填）" },
+                    "description": { "type": "string", "description": "分组描述（可选）：传入即更新，传空字符串清空" }
                 },
                 "required": ["id", "name"]
             }),
         ),
         ToolDef::new(
             "group_delete",
-            "删除任务分组（其下任务一并移入回收站）",
+            "删除任务分组（组内任务含归档移入「无分组」；系统分组「无分组」不可删除）",
             json!({
                 "type": "object",
                 "properties": { "id": { "type": "integer", "description": "分组 id（必填）" } },
@@ -118,10 +139,13 @@ pub(super) fn tools() -> Vec<ToolDef> {
         ),
         ToolDef::new(
             "task_list",
-            "列出任务；可按分组过滤",
+            "列出任务；可按分组过滤，可选包含已归档",
             json!({
                 "type": "object",
-                "properties": { "group_id": { "type": "integer", "description": "分组 id（可选，缺省返回全部）" } }
+                "properties": {
+                    "group_id": { "type": "integer", "description": "分组 id（可选，缺省返回全部）" },
+                    "include_archived": { "type": "boolean", "description": "包含已归档任务（可选，默认 false 仅返回未归档）" }
+                }
             }),
         ),
         ToolDef::new(
@@ -164,6 +188,24 @@ pub(super) fn tools() -> Vec<ToolDef> {
                     "done": { "type": "boolean", "description": "true 标记完成，false 恢复未完成（必填）" }
                 },
                 "required": ["id", "done"]
+            }),
+        ),
+        ToolDef::new(
+            "task_archive",
+            "归档任务（从清单移入归档，界面「归档」页可查看与恢复）",
+            json!({
+                "type": "object",
+                "properties": { "id": { "type": "integer", "description": "任务 id（必填）" } },
+                "required": ["id"]
+            }),
+        ),
+        ToolDef::new(
+            "task_unarchive",
+            "取消归档（任务回到原清单）",
+            json!({
+                "type": "object",
+                "properties": { "id": { "type": "integer", "description": "任务 id（必填）" } },
+                "required": ["id"]
             }),
         ),
         ToolDef::new(
@@ -244,6 +286,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
             .to_string(),
         ),
 
+        // 本 MCP 进程实际打开的数据库文件（含 TODO4AGENT_DB 环境变量覆盖）
+        "db_path" => tool_result(id, json!({ "path": db::db_path() }).to_string()),
+
         "group_list" => match db::list_groups(conn, user_id) {
             Ok(v) => tool_result(id, json!(v).to_string()),
             Err(e) => db_err(e),
@@ -254,7 +299,11 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
-            match db::create_group(conn, user_id, &name) {
+            let description = match arg_opt_str(args, "description") {
+                Ok(v) => v.unwrap_or_default(),
+                Err(m) => return tool_error(id, m),
+            };
+            match db::create_group(conn, user_id, &name, &description) {
                 Ok(g) => tool_result(id, json!(g).to_string()),
                 Err(e) if db::is_unique_violation(&e) => tool_error(id, "分组名已存在".into()),
                 Err(e) => db_err(e),
@@ -270,13 +319,38 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
+            // 先解析描述参数，避免改名成功后才发现参数非法
+            let description = match args.get("description") {
+                None => None,
+                Some(v) => match v.as_str() {
+                    Some(s) => Some(s.trim().to_string()),
+                    None => return tool_error(id, "参数错误: description 必须是字符串".into()),
+                },
+            };
             if group_locked(conn, user_id, gid, id) {
                 return;
             }
+            // 系统分组不可改名，先行拦截给出可读错误（db 层同样兜底）
+            if let Ok(Some(g)) = db::get_group(conn, user_id, gid) {
+                if g.name == db::NO_GROUP {
+                    return tool_error(id, "系统分组「无分组」不可重命名".into());
+                }
+            }
             match db::rename_group(conn, user_id, gid, &name) {
+                Ok(Some(_)) => {}
+                Ok(None) => return tool_error(id, "分组不存在".into()),
+                Err(e) if db::is_unique_violation(&e) => tool_error(id, "分组名已存在".into()),
+                Err(e) => return db_err(e),
+            }
+            if let Some(d) = description {
+                match db::set_group_description(conn, user_id, gid, &d) {
+                    Ok(_) => {}
+                    Err(e) => return db_err(e),
+                }
+            }
+            match db::get_group(conn, user_id, gid) {
                 Ok(Some(g)) => tool_result(id, json!(g).to_string()),
                 Ok(None) => tool_error(id, "分组不存在".into()),
-                Err(e) if db::is_unique_violation(&e) => tool_error(id, "分组名已存在".into()),
                 Err(e) => db_err(e),
             }
         }
@@ -288,6 +362,12 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
             };
             if group_locked(conn, user_id, gid, id) {
                 return;
+            }
+            // 系统分组不可删除，先行拦截给出可读错误（db 层同样兜底）
+            if let Ok(Some(g)) = db::get_group(conn, user_id, gid) {
+                if g.name == db::NO_GROUP {
+                    return tool_error(id, "系统分组「无分组」不可删除".into());
+                }
             }
             match db::delete_group(conn, user_id, gid) {
                 Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
@@ -301,7 +381,25 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
-            match db::list_tasks(conn, user_id, gid) {
+            let include_archived = match args.get("include_archived") {
+                None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+                Some(Value::Bool(true)) => true,
+                Some(_) => return tool_error(id, "参数错误: include_archived 必须是布尔值".into()),
+            };
+            let result = match db::list_tasks(conn, user_id, gid) {
+                Ok(mut v) => {
+                    // 包含归档时追加归档任务（按归档时间倒序）
+                    if include_archived {
+                        match db::list_archived(conn, user_id) {
+                            Ok(a) => v.extend(a),
+                            Err(e) => return db_err(e),
+                        }
+                    }
+                    Ok(v)
+                }
+                Err(e) => Err(e),
+            };
+            match result {
                 Ok(v) => tool_result(id, json!(v).to_string()),
                 Err(e) => db_err(e),
             }
@@ -406,6 +504,36 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
             match db::update_task(conn, user_id, tid, &patch) {
                 Ok(Some(t)) => tool_result(id, json!(t).to_string()),
                 Ok(None) => tool_error(id, "任务不存在".into()),
+                Err(e) => db_err(e),
+            }
+        }
+
+        "task_archive" => {
+            let tid = match arg_i64(args, "id") {
+                Ok(v) => v,
+                Err(m) => return tool_error(id, m),
+            };
+            if task_locked(conn, user_id, tid, id) {
+                return;
+            }
+            match db::archive_task(conn, user_id, tid) {
+                Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
+                Ok(false) => tool_error(id, "任务不存在或已归档".into()),
+                Err(e) => db_err(e),
+            }
+        }
+
+        "task_unarchive" => {
+            let tid = match arg_i64(args, "id") {
+                Ok(v) => v,
+                Err(m) => return tool_error(id, m),
+            };
+            if task_locked(conn, user_id, tid, id) {
+                return;
+            }
+            match db::unarchive_task(conn, user_id, tid) {
+                Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
+                Ok(false) => tool_error(id, "任务不在归档中".into()),
                 Err(e) => db_err(e),
             }
         }
@@ -538,6 +666,7 @@ mod tests {
     fn app_version_tool_defined() {
         assert!(tools().iter().any(|t| t.name == "app_version"));
         assert!(tools().iter().any(|t| t.name == "app_release"));
+        assert!(tools().iter().any(|t| t.name == "db_path"));
     }
 
     #[test]
@@ -545,6 +674,8 @@ mod tests {
         let names: Vec<&str> = tools().iter().map(|t| t.name).collect();
         assert!(names.contains(&"group_delete"));
         assert!(names.contains(&"task_import"));
+        assert!(names.contains(&"task_archive"));
+        assert!(names.contains(&"task_unarchive"));
         assert!(names.contains(&"user_password"));
         assert!(names.contains(&"prompt_get"));
         assert!(names.contains(&"prompt_update"));

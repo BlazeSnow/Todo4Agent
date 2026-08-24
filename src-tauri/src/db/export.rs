@@ -9,6 +9,7 @@ pub fn export_all(conn: &Connection, user_id: i64) -> SqlResult<ExportDoc> {
         let tasks = list_tasks(conn, user_id, Some(g.id))?;
         out.push(ExportGroup {
             name: g.name.clone(),
+            description: g.description.clone(),
             tasks: tasks
                 .into_iter()
                 .map(|t| ExportTask {
@@ -73,11 +74,16 @@ pub fn import_doc(conn: &Connection, user_id: i64, doc: &ExportDoc) -> SqlResult
         }
         let group_id = match name_map.get(name) {
             Some(id) => {
+                // 并入时文档带非空描述则覆盖现有描述（与任务追加语义一致）
+                let desc = g.description.trim();
+                if !desc.is_empty() {
+                    set_group_description(conn, user_id, *id, desc)?;
+                }
                 result.groups_merged += 1;
                 *id
             }
             None => {
-                let group = create_group(conn, user_id, name)?;
+                let group = create_group(conn, user_id, name, g.description.trim())?;
                 result.groups_created += 1;
                 name_map.insert(name.to_string(), group.id);
                 group.id
@@ -130,6 +136,7 @@ mod tests {
             groups: vec![
                 ExportGroup {
                     name: DEFAULT_GROUP.to_string(), // 同名 → 并入快速清单
+                    description: "导入的描述".to_string(),
                     tasks: vec![
                         ExportTask {
                             title: "导入任务1".to_string(),
@@ -153,6 +160,7 @@ mod tests {
                 },
                 ExportGroup {
                     name: "新分组".to_string(), // 新名字 → 新建
+                    description: String::new(),
                     tasks: vec![ExportTask {
                         title: "新组任务".to_string(),
                         description: String::new(),
@@ -175,10 +183,15 @@ mod tests {
         assert_eq!(tasks.len(), 3);
         assert!(tasks.iter().any(|t| t.title == "导入任务1" && t.status == "done"));
 
-        // 新分组
+        // 并入的分组：文档带非空描述 → 覆盖
+        let merged = get_group(&c, admin, gid).unwrap().unwrap();
+        assert_eq!(merged.description, "导入的描述");
+
+        // 新分组：文档描述为空 → 保持空
         let groups = list_groups(&c, admin).unwrap();
         let new_g = groups.iter().find(|g| g.name == "新分组").unwrap();
         assert_eq!(list_tasks(&c, admin, Some(new_g.id)).unwrap().len(), 1);
+        assert_eq!(new_g.description, "");
     }
 
     #[test]
@@ -188,8 +201,10 @@ mod tests {
         create_task(&c, admin, gid, "A", "B", None).unwrap();
         let doc = export_all(&c, admin).unwrap();
         assert_eq!(doc.version, 1);
-        assert_eq!(doc.groups.len(), 1);
+        // 默认分组与系统分组「无分组」
+        assert_eq!(doc.groups.len(), 2);
         assert_eq!(doc.groups[0].name, DEFAULT_GROUP);
+        assert_eq!(doc.groups[1].name, NO_GROUP);
         assert_eq!(doc.groups[0].tasks.len(), 1);
         assert_eq!(doc.groups[0].tasks[0].title, "A");
         // 未设置提示词 → 导出为 None
