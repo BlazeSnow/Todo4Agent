@@ -85,47 +85,42 @@ function groupNameOf(groupId: number): string {
           :dot-color="task.status === 'done' ? 'primary' : 'grey'"
           :icon="task.status === 'done' ? 'mdi-check' : undefined"
         >
-          <div class="task-item archive-item">
-            <div class="task-main">
-              <div class="task-title" :class="{ struck: task.status === 'done' }">
-                {{ task.title }}
-                <span class="archive-time text-medium-emphasis">{{ timeOf(task.archived_at!) }}</span>
-              </div>
-              <div v-if="task.description" class="task-desc">{{ task.description }}</div>
-              <div class="task-pills">
-                <span class="task-pill">
-                  <i class="mdi mdi-folder-outline"></i>
-                  {{ groupNameOf(task.group_id) }}
-                </span>
-              </div>
-            </div>
-            <div class="task-actions">
-              <v-menu location="bottom right">
-                <template #activator="{ props }">
-                  <v-btn
-                    v-bind="props"
-                    icon="mdi-dots-horizontal"
-                    size="small"
-                    variant="text"
-                    :aria-label="`更多操作：${task.title}`"
-                  />
-                </template>
-                <v-list density="compact">
-                  <v-list-item
-                    prepend-icon="mdi-package-up-outline"
-                    title="取消归档"
-                    subtitle="回到原清单"
-                    @click="$emit('restore', task)"
-                  />
-                  <v-list-item
-                    prepend-icon="mdi-delete"
-                    title="移入回收站"
-                    color="error"
-                    @click="$emit('remove', task)"
-                  />
-                </v-list>
-              </v-menu>
-            </div>
+          <!-- 无界扁平条目：无卡片边框/底色，标题、分组、时间单行排布 -->
+          <div class="archive-row">
+            <span class="archive-title" :class="{ struck: task.status === 'done' }">
+              {{ task.title }}
+            </span>
+            <span class="archive-group">
+              <i class="mdi mdi-folder-outline"></i>
+              {{ groupNameOf(task.group_id) }}
+            </span>
+            <span class="archive-time">{{ timeOf(task.archived_at!) }}</span>
+            <v-menu location="bottom right">
+              <template #activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  icon="mdi-dots-horizontal"
+                  size="small"
+                  variant="text"
+                  :aria-label="`更多操作：${task.title}`"
+                />
+              </template>
+              <v-list density="compact">
+                <v-list-item
+                  prepend-icon="mdi-package-up-outline"
+                  title="取消归档"
+                  subtitle="回到原清单"
+                  @click="$emit('restore', task)"
+                />
+                <v-list-item
+                  prepend-icon="mdi-delete"
+                  title="移入回收站"
+                  color="error"
+                  @click="$emit('remove', task)"
+                />
+              </v-list>
+            </v-menu>
+            <div v-if="task.description" class="archive-desc">{{ task.description }}</div>
           </div>
         </v-timeline-item>
       </v-timeline>
@@ -133,15 +128,57 @@ function groupNameOf(groupId: number): string {
   </div>
 </template>
 
-<style src="../styles/task-card.css"></style>
-
 <style scoped>
-.archive-item {
-  padding: 10px 14px;
+/* Vuetify 竖向 side-end 时间线的 body 列为 auto 且 justify-self:flex-start，
+   条目会收缩到内容宽度；改为 1fr + stretch 让其占满时间线右侧全部宽度 */
+.v-timeline--vertical.v-timeline--density-compact.v-timeline--side-end {
+  grid-template-columns: 0 min-content 1fr;
 }
+:deep(.v-timeline-item__body) {
+  justify-self: stretch;
+  padding-inline-start: 12px;
+}
+
+/* 无界扁平条目：单行（标题 + 分组 + 时间 + 操作），有描述时另起一行 */
+.archive-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  padding: 4px 0;
+}
+.archive-title {
+  flex: 1 1 auto;
+  min-width: 160px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.archive-title.struck {
+  text-decoration: line-through;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+}
+.archive-group,
 .archive-time {
+  flex-shrink: 0;
   font-size: 12px;
-  font-weight: 400;
-  margin-left: 8px;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+.archive-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.archive-group .mdi {
+  font-size: 13px;
+}
+.archive-desc {
+  flex-basis: 100%;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>
