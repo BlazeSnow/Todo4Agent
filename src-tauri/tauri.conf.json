@@ -30,12 +30,18 @@
     "windows": {
       "wix": {
         "version": "1.0.6",
-        "language": "zh-CN"
+        "language": "zh-CN",
+        "bannerPath": "icons/msi-banner.bmp",
+        "dialogImagePath": "icons/msi-dialog.bmp"
       },
       "nsis": {
         "languages": [
           "SimpChinese"
-        ]
+        ],
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "headerImage": "icons/nsis-header.bmp",
+        "sidebarImage": "icons/nsis-sidebar.bmp"
       }
     }
   }
