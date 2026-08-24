@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
 import GroupSidebar from './components/GroupSidebar.vue'
 import ContextMenu, { type ContextMenuItem } from './components/ContextMenu.vue'
@@ -13,6 +14,7 @@ import PromptView from './components/PromptView.vue'
 import TrashView from './components/TrashView.vue'
 import ArchiveView from './components/ArchiveView.vue'
 import LoginView from './components/LoginView.vue'
+import LocaleSwitch from './components/LocaleSwitch.vue'
 import {
   authLogout,
   authStatus,
@@ -39,6 +41,8 @@ import {
   updateTask,
 } from './api'
 import type { Group, Task, TaskInput } from './types'
+
+const { t } = useI18n()
 
 const groups = ref<Group[]>([])
 const tasks = ref<Task[]>([])
@@ -228,10 +232,10 @@ async function onGroupDialogSave(name: string, description: string) {
   try {
     if (groupDialogMode.value === 'create') {
       await createGroup(name, description)
-      notify(`已创建分组：${name}`)
+      notify(t('app.groupCreated', { name }))
     } else if (groupDialogTarget.value) {
       await updateGroup(groupDialogTarget.value.id, { name, description })
-      notify(`已保存分组修改：${name}`)
+      notify(t('app.groupSaved', { name }))
     }
     await loadGroups()
   } catch (e) {
@@ -243,11 +247,7 @@ async function onGroupDialogSave(name: string, description: string) {
 async function onToggleGroupLock(group: Group) {
   try {
     const g = await setGroupLocked(group.id, !group.locked)
-    notify(
-      g.locked
-        ? `已锁定清单「${g.name}」：Agent 无法编辑该清单`
-        : `已解锁清单「${g.name}」：Agent 可编辑`,
-    )
+    notify(g.locked ? t('app.groupLocked', { name: g.name }) : t('app.groupUnlocked', { name: g.name }))
     await loadGroups()
   } catch (e) {
     notify((e as Error).message)
@@ -275,7 +275,7 @@ function openEditTask(task: Task) {
 async function onArchiveTask(task: Task) {
   try {
     await archiveTask(task.id)
-    notify(`已归档：${task.title}`)
+    notify(t('app.taskArchived', { title: task.title }))
     await loadTasks()
   } catch (e) {
     notify((e as Error).message)
@@ -286,7 +286,7 @@ async function onArchiveTask(task: Task) {
 async function onUnarchiveTask(task: Task) {
   try {
     await unarchiveTask(task.id)
-    notify(`已取消归档：${task.title}`)
+    notify(t('app.taskUnarchived', { title: task.title }))
     await loadArchive()
     // 任务回到清单：当前分组列表可能仍是旧数据，一并刷新
     await loadTasks()
@@ -309,10 +309,10 @@ async function onTaskDialogSave(input: TaskInput) {
         description: input.description,
         due_at: input.due_at,
       })
-      notify('任务已更新')
+      notify(t('app.taskUpdated'))
     } else {
       await createTask(input)
-      notify('任务已创建')
+      notify(t('app.taskCreated'))
     }
     if (selectedGroupId.value !== input.group_id) {
       selectedGroupId.value = input.group_id
@@ -363,17 +363,17 @@ async function onReorderGroups(groupIds: number[]) {
 const confirmMessage = computed(() => {
   switch (confirmAction.value?.type) {
     case 'group':
-      return '删除后组内任务（含已归档）将移入「无分组」，分组移入回收站。确定删除吗？'
+      return t('confirm.deleteGroup')
     case 'task':
-      return '删除后任务将移入回收站，可随时恢复。确定删除吗？'
+      return t('confirm.deleteTask')
     case 'purgeGroup':
-      return '将彻底删除该分组，不可恢复；其任务已在删除时移入「无分组」。确定继续吗？'
+      return t('confirm.purgeGroup')
     case 'purgeTask':
-      return '将彻底删除该任务，不可恢复。确定继续吗？'
+      return t('confirm.purgeTask')
     case 'emptyTrash':
-      return '将彻底删除回收站中的所有分组与任务，不可恢复。确定继续吗？'
+      return t('confirm.emptyTrash')
     case 'archivedTask':
-      return '任务将移入回收站，可随时恢复。确定移出归档吗？'
+      return t('confirm.archivedTask')
     default:
       return ''
   }
@@ -387,32 +387,32 @@ async function doConfirm() {
     switch (action.type) {
       case 'group':
         await deleteGroup(action.id!)
-        notify('已移入回收站')
+        notify(t('app.movedToTrash'))
         await loadGroups()
         break
       case 'task':
         await deleteTask(action.id!)
-        notify('已移入回收站')
+        notify(t('app.movedToTrash'))
         await loadTasks()
         break
       case 'purgeGroup':
         await purgeGroup(action.id!)
-        notify('已彻底删除分组')
+        notify(t('app.groupPurged'))
         await loadTrash()
         break
       case 'purgeTask':
         await purgeTask(action.id!)
-        notify('已彻底删除任务')
+        notify(t('app.taskPurged'))
         await loadTrash()
         break
       case 'emptyTrash':
         await emptyTrash()
-        notify('回收站已清空')
+        notify(t('app.trashEmptied'))
         await loadTrash()
         break
       case 'archivedTask':
         await deleteTask(action.id!)
-        notify('已移入回收站')
+        notify(t('app.movedToTrash'))
         await loadArchive()
         break
     }
@@ -426,11 +426,11 @@ async function onRestoreTrash(kind: 'group' | 'task', id: number) {
   try {
     if (kind === 'task') {
       await restoreTask(id)
-      notify('已恢复任务')
+      notify(t('app.taskRestored'))
       await loadTasks()
     } else {
       const r = await restoreGroup(id)
-      notify(r.renamed_to ? `原名被占用，已恢复并重命名为：${r.renamed_to}` : '已恢复分组及其任务')
+      notify(r.renamed_to ? t('app.groupRestoredRenamed', { name: r.renamed_to }) : t('app.groupRestored'))
       await loadGroups()
     }
     await loadTrash()
@@ -452,7 +452,7 @@ function onEmptyTrash() {
 // ---------- 导出（由设置页触发） ----------
 
 function notifyExported() {
-  notify('已导出 JSON')
+  notify(t('app.exported'))
 }
 
 /** 导入完成后刷新各视图数据 */
@@ -475,12 +475,12 @@ function onGlobalContextMenu(e: MouseEvent) {
     y: e.clientY,
     items: [
       {
-        label: '新建任务',
+        label: t('app.newTask'),
         icon: 'mdi-plus',
         disabled: currentView.value !== 'tasks' || selectedGroupId.value == null,
         action: openCreateTask,
       },
-      { label: '刷新', icon: 'mdi-refresh', action: () => refresh() },
+      { label: t('common.refresh'), icon: 'mdi-refresh', action: () => refresh() },
     ],
   }
 }
@@ -506,7 +506,7 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           v-if="!isLarge"
           :icon="drawer ? 'mdi-menu-open' : 'mdi-menu'"
           variant="text"
-          aria-label="切换侧边栏"
+          :aria-label="t('app.toggleSidebar')"
           @click="drawer = !drawer"
         />
       </template>
@@ -514,10 +514,11 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
         <img src="/favicon.ico" alt="Todo4Agent" class="app-logo" />
         Todo4Agent
         <span class="text-body-2 text-medium-emphasis ml-2">
-          为 Agent 设计的 MCP 任务清单
+          {{ t('app.tagline') }}
         </span>
       </v-app-bar-title>
-      <v-btn variant="text" prepend-icon="mdi-refresh" @click="refresh">刷新</v-btn>
+      <LocaleSwitch />
+      <v-btn variant="text" prepend-icon="mdi-refresh" @click="refresh">{{ t('common.refresh') }}</v-btn>
     </v-app-bar>
 
     <v-navigation-drawer

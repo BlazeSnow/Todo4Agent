@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { authLogin, authRegister, authStatus, setToken } from '../api'
 import { onEnterSubmit } from '../ime'
+import LocaleSwitch from './LocaleSwitch.vue'
 
 const emit = defineEmits<{
   (e: 'logged-in', username: string): void
   (e: 'error', msg: string): void
 }>()
+
+const { t } = useI18n()
 
 const username = ref('')
 const password = ref('')
@@ -66,7 +70,7 @@ async function doRegister() {
         Todo4Agent
       </v-card-title>
       <v-card-subtitle class="text-center pb-4">
-        为 Agent 设计的 MCP 任务清单
+        {{ t('login.subtitle') }}
       </v-card-subtitle>
       <v-card-text>
         <v-alert
@@ -74,20 +78,20 @@ async function doRegister() {
           type="warning"
           density="compact"
           class="mb-4"
-          title="初始账号"
+          :title="t('login.defaultAccount')"
         >
-          初始用户 admin，默认密码 admin123，请登录后尽快在设置中修改密码。
+          {{ t('login.defaultAccountHint') }}
         </v-alert>
         <v-text-field
           v-model="username"
-          label="用户名"
+          :label="t('login.username')"
           autocomplete="username"
           autofocus
           @keydown.enter="onEnterSubmit($event, doLogin)"
         />
         <v-text-field
           v-model="password"
-          label="密码（至少 4 位）"
+          :label="t('login.password')"
           type="password"
           autocomplete="current-password"
           @keydown.enter="onEnterSubmit($event, doLogin)"
@@ -97,9 +101,10 @@ async function doRegister() {
         </v-alert>
       </v-card-text>
       <v-card-actions class="px-6 pb-6">
+        <LocaleSwitch />
         <v-spacer />
-        <v-btn v-if="allowRegister" variant="tonal" :loading="busy" @click="doRegister">注册</v-btn>
-        <v-btn color="primary" :loading="busy" @click="doLogin">登录</v-btn>
+        <v-btn v-if="allowRegister" variant="tonal" :loading="busy" @click="doRegister">{{ t('login.register') }}</v-btn>
+        <v-btn color="primary" :loading="busy" @click="doLogin">{{ t('login.signIn') }}</v-btn>
       </v-card-actions>
     </v-card>
   </div>

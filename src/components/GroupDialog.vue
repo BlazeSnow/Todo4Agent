@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Group } from '../types'
 import { onEnterSubmit } from '../ime'
 
@@ -13,6 +14,8 @@ const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
   (e: 'save', name: string, description: string): void
 }>()
+
+const { t } = useI18n()
 
 const name = ref('')
 const description = ref('')
@@ -42,13 +45,13 @@ function save() {
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card>
-      <v-card-title>{{ mode === 'create' ? '新增分组' : '编辑分组' }}</v-card-title>
+      <v-card-title>{{ mode === 'create' ? t('groupDialog.createTitle') : t('groupDialog.editTitle') }}</v-card-title>
       <v-card-text>
-        <v-text-field v-model="name" label="分组名称" autofocus @keydown.enter="onEnterSubmit($event, save)" />
+        <v-text-field v-model="name" :label="t('groupDialog.name')" autofocus @keydown.enter="onEnterSubmit($event, save)" />
         <v-textarea
           v-model="description"
-          label="分组描述（可选）"
-          placeholder="说明该清单的用途，如给 Agent 的使用备注"
+          :label="t('groupDialog.description')"
+          :placeholder="t('groupDialog.descriptionPlaceholder')"
           rows="3"
           auto-grow
           hide-details
@@ -56,8 +59,8 @@ function save() {
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="text" @click="emit('update:modelValue', false)">取消</v-btn>
-        <v-btn color="primary" :disabled="!name.trim()" @click="save">保存</v-btn>
+        <v-btn variant="text" @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</v-btn>
+        <v-btn color="primary" :disabled="!name.trim()" @click="save">{{ t('common.save') }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

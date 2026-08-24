@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Group, Task } from '../types'
+import { NO_GROUP_NAME } from '../types'
+import { dateLocale } from '../i18n'
 
 const props = defineProps<{
   /** 已归档的任务（后端按归档时间倒序返回） */
@@ -13,6 +16,8 @@ const emit = defineEmits<{
   (e: 'restore', task: Task): void
   (e: 'remove', task: Task): void
 }>()
+
+const { t } = useI18n()
 
 /** 按归档日期（本地时区）分组，保持倒序：[{ key, label, items }] */
 const byDay = computed(() => {
@@ -31,27 +36,28 @@ const byDay = computed(() => {
   return days
 })
 
-/** 日期标签：今天 / 昨天 / 其余显示中文完整日期（含星期） */
+/** 日期标签：今天 / 昨天 / 其余按界面语言显示完整日期（含星期） */
 function dayLabel(d: Date): string {
   const today = new Date()
   const sameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
   const yesterday = new Date(today)
   yesterday.setDate(today.getDate() - 1)
-  if (sameDay(d, today)) return '今天'
-  if (sameDay(d, yesterday)) return '昨天'
-  return d.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
+  if (sameDay(d, today)) return t('archive.today')
+  if (sameDay(d, yesterday)) return t('archive.yesterday')
+  return d.toLocaleDateString(dateLocale.value, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
 }
 
 function timeOf(iso: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
-  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleTimeString(dateLocale.value, { hour: '2-digit', minute: '2-digit' })
 }
 
 function groupNameOf(groupId: number): string {
   const g = props.activeGroups.find((x) => x.id === groupId)
-  return g ? g.name : '（分组已删除）'
+  if (!g) return t('groups.groupDeleted')
+  return g.name === NO_GROUP_NAME ? t('groups.noGroup') : g.name
 }
 </script>
 
@@ -59,19 +65,19 @@ function groupNameOf(groupId: number): string {
   <div>
     <div class="d-flex align-center mb-4">
       <v-icon icon="mdi-archive-outline" class="mr-2" />
-      <h2 class="text-h6">归档</h2>
+      <h2 class="text-h6">{{ t('archive.title') }}</h2>
       <v-chip v-if="tasks.length > 0" size="small" variant="tonal" class="ml-3">
-        {{ tasks.length }} 个任务
+        {{ t('archive.taskCount', { n: tasks.length }) }}
       </v-chip>
       <v-spacer />
-      <span class="text-caption text-medium-emphasis">在任务卡片菜单中选择「归档」，任务会按时间保留在这里</span>
+      <span class="text-caption text-medium-emphasis">{{ t('archive.hint') }}</span>
     </div>
 
     <v-empty
       v-if="tasks.length === 0"
       icon="mdi-archive-outline"
-      title="归档为空"
-      text="完成的任务可在卡片菜单中归档，归档后按时间线保留在这里，可随时恢复"
+      :title="t('archive.empty')"
+      :text="t('archive.emptyHint')"
     />
 
     <!-- 按归档日期分组的时间线：每天一个日期标题，组内任务沿时间线排列 -->
@@ -102,19 +108,19 @@ function groupNameOf(groupId: number): string {
                   icon="mdi-dots-horizontal"
                   size="small"
                   variant="text"
-                  :aria-label="`更多操作：${task.title}`"
+                  :aria-label="t('common.moreActions', { name: task.title })"
                 />
               </template>
               <v-list density="compact">
                 <v-list-item
                   prepend-icon="mdi-archive-arrow-up-outline"
-                  title="取消归档"
-                  subtitle="回到原清单"
+                  :title="t('archive.unarchive')"
+                  :subtitle="t('archive.unarchiveSubtitle')"
                   @click="$emit('restore', task)"
                 />
                 <v-list-item
                   prepend-icon="mdi-delete"
-                  title="移入回收站"
+                  :title="t('archive.moveToTrash')"
                   color="error"
                   @click="$emit('remove', task)"
                 />
