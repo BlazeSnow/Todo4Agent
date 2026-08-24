@@ -34,9 +34,15 @@ jobs:
       run: bash ci/check-version.sh "${GITHUB_REF_NAME#v}"
 
     - name: setup node
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         node-version: 26
+
+    # runner 不预装 pnpm，必须先安装（package.json 未声明 packageManager 字段）
+    - name: setup pnpm
+      uses: pnpm/action-setup@v6
+      with:
+        version: 11
 
     - name: install Rust stable
       uses: dtolnay/rust-toolchain@stable
@@ -44,11 +50,16 @@ jobs:
         # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
         targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+    - name: rust cache
+      uses: swatinem/rust-cache@v2
+      with:
+        workspaces: src-tauri
+
+    # 依赖列表以 ci/linux-deps.sh 为准（托盘需要 libayatana-appindicator3-dev，
+    # 模板里的 libappindicator3-dev 是已弃用的旧库，链接会失败）
     - name: install dependencies (ubuntu only)
       if: matrix.platform == 'ubuntu-22.04' # This must match the platform value defined above.
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+      run: bash ci/linux-deps.sh
 
     - name: install frontend dependencies
       run: pnpm install --frozen-lockfile
@@ -62,3 +73,5 @@ jobs:
         releaseBody: 完整更新日志见 [CHANGELOG.md](https://github.com/BlazeSnow/Todo4Agent/blob/main/CHANGELOG.md)
         prerelease: ${{ contains(github.ref_name, '-beta') }}
         uploadUpdaterJson: false
+        # matrix 里的 --target 通过 args 传给 tauri build（macOS 双架构关键）
+        args: ${{ matrix.args }}
