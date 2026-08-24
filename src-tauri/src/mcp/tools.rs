@@ -130,7 +130,7 @@ pub(super) fn tools() -> Vec<ToolDef> {
         ),
         ToolDef::new(
             "group_delete",
-            "删除任务分组（其下未归档任务一并移入回收站，已归档任务保留在归档中）",
+            "删除任务分组（组内任务含归档移入「无分组」；系统分组「无分组」不可删除）",
             json!({
                 "type": "object",
                 "properties": { "id": { "type": "integer", "description": "分组 id（必填）" } },
@@ -330,6 +330,12 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
             if group_locked(conn, user_id, gid, id) {
                 return;
             }
+            // 系统分组不可改名，先行拦截给出可读错误（db 层同样兜底）
+            if let Ok(Some(g)) = db::get_group(conn, user_id, gid) {
+                if g.name == db::NO_GROUP {
+                    return tool_error(id, "系统分组「无分组」不可重命名".into());
+                }
+            }
             match db::rename_group(conn, user_id, gid, &name) {
                 Ok(Some(_)) => {}
                 Ok(None) => return tool_error(id, "分组不存在".into()),
@@ -356,6 +362,12 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
             };
             if group_locked(conn, user_id, gid, id) {
                 return;
+            }
+            // 系统分组不可删除，先行拦截给出可读错误（db 层同样兜底）
+            if let Ok(Some(g)) = db::get_group(conn, user_id, gid) {
+                if g.name == db::NO_GROUP {
+                    return tool_error(id, "系统分组「无分组」不可删除".into());
+                }
             }
             match db::delete_group(conn, user_id, gid) {
                 Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),

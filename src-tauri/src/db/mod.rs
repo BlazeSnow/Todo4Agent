@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 /// 默认分组名（AGENTS.md 约定）
 pub const DEFAULT_GROUP: &str = "快速清单";
+/// 系统分组「无分组」：分组被删除时其任务（含归档）移入该分组；不可删除、不可改名
+pub const NO_GROUP: &str = "无分组";
 /// 初始用户与默认密码（登录后应立即修改）
 pub const DEFAULT_ADMIN_USERNAME: &str = "admin";
 pub const DEFAULT_ADMIN_PASSWORD: &str = "admin123";
@@ -323,6 +325,7 @@ fn ensure_group_name_scoped(conn: &Connection) -> SqlResult<()> {
 /// 初始化时播种初始用户 admin（仅当尚无任何用户）。admin 创建时接管
 /// 本地模式遗留的无主数据；若接管后仍无任何分组，播种默认分组「快速清单」。
 /// 已有用户的数据库不会重复播种（用户彻底删除默认分组后不会再现）。
+/// 最后为所有存量用户补齐系统分组「无分组」（新用户在 create_user 时已播种）。
 fn seed_default_admin(conn: &Connection) -> SqlResult<()> {
     if user_count(conn)? == 0 {
         let user = create_user(conn, DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD)?;
@@ -333,6 +336,16 @@ fn seed_default_admin(conn: &Connection) -> SqlResult<()> {
         if list_groups(conn, user.id)?.is_empty() {
             create_group(conn, user.id, DEFAULT_GROUP, "")?;
         }
+    }
+    ensure_no_group_all_users(conn)
+}
+
+/// 为数据库中的每个用户补齐系统分组「无分组」（幂等；缺失时创建）
+fn ensure_no_group_all_users(conn: &Connection) -> SqlResult<()> {
+    let mut stmt = conn.prepare("SELECT id FROM users")?;
+    let ids: Vec<i64> = stmt.query_map([], |row| row.get(0))?.collect::<SqlResult<_>>()?;
+    for id in ids {
+        ensure_no_group(conn, id)?;
     }
     Ok(())
 }
@@ -429,25 +442,30 @@ mod tests {
     fn seeds_default_group() {
         let (c, admin) = test_conn();
         let groups = list_groups(&c, admin).unwrap();
-        assert_eq!(groups.len(), 1);
+        // 默认分组「快速清单」在前，系统分组「无分组」随后
+        assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].name, DEFAULT_GROUP);
+        assert_eq!(groups[1].name, NO_GROUP);
     }
 
     #[test]
     fn existing_db_does_not_reseed_default_group() {
         let path = std::env::temp_dir().join(format!("todo4agent-reseed-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
-        // 首次打开播种 admin 与默认分组；用户彻底删除默认分组
+        // 首次打开播种 admin、默认分组与系统分组；用户彻底删除默认分组
         {
             let c = open(&path).unwrap();
             let admin = list_users(&c).unwrap()[0].id;
             let gid = list_groups(&c, admin).unwrap()[0].id;
             purge_group(&c, admin, gid).unwrap();
         }
-        // 重新打开：不再播种默认分组，也不产生无主分组
+        // 重新打开：不再播种默认分组，也不产生无主分组；
+        // 系统分组「无分组」不可删除、始终保留
         let c = open(&path).unwrap();
         let admin = list_users(&c).unwrap()[0].id;
-        assert!(list_groups(&c, admin).unwrap().is_empty());
+        let groups = list_groups(&c, admin).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].name, NO_GROUP);
         let orphans: i64 = c
             .query_row("SELECT COUNT(*) FROM groups WHERE user_id IS NULL", [], |r| r.get(0))
             .unwrap();
@@ -478,12 +496,14 @@ mod tests {
             )
             .unwrap();
         }
-        // 打开：播种 admin 并接管无主数据，不再追加默认分组
+        // 打开：播种 admin 并接管无主数据，不再追加默认分组；
+        // 系统分组「无分组」补齐到分组末尾
         let c = open(&path).unwrap();
         let admin = list_users(&c).unwrap()[0].id;
         let groups = list_groups(&c, admin).unwrap();
-        assert_eq!(groups.len(), 1);
+        assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].name, "遗留分组");
+        assert_eq!(groups[1].name, NO_GROUP);
         drop(c);
         let _ = std::fs::remove_file(&path);
     }

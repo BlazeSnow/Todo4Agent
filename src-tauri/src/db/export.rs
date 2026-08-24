@@ -201,8 +201,10 @@ mod tests {
         create_task(&c, admin, gid, "A", "B", None).unwrap();
         let doc = export_all(&c, admin).unwrap();
         assert_eq!(doc.version, 1);
-        assert_eq!(doc.groups.len(), 1);
+        // 默认分组与系统分组「无分组」
+        assert_eq!(doc.groups.len(), 2);
         assert_eq!(doc.groups[0].name, DEFAULT_GROUP);
+        assert_eq!(doc.groups[1].name, NO_GROUP);
         assert_eq!(doc.groups[0].tasks.len(), 1);
         assert_eq!(doc.groups[0].tasks[0].title, "A");
         // 未设置提示词 → 导出为 None

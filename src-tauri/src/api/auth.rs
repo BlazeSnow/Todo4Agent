@@ -72,14 +72,20 @@ pub async fn auth_register(
         return err(StatusCode::FORBIDDEN, "注册已关闭");
     }
     match db::create_user(&c, username, &body.password) {
-        Ok(user) => match db::issue_session(&c, user.id) {
-            Ok(token) => ok_json(json!({
-                "token": token,
-                "user_id": user.id,
-                "username": user.username
-            })),
-            Err(e) => internal(e),
-        },
+        Ok(user) => {
+            // 新用户自带系统分组「无分组」（分组被删除时其任务的去处）
+            if let Err(e) = db::ensure_no_group(&c, user.id) {
+                return internal(e);
+            }
+            match db::issue_session(&c, user.id) {
+                Ok(token) => ok_json(json!({
+                    "token": token,
+                    "user_id": user.id,
+                    "username": user.username
+                })),
+                Err(e) => internal(e),
+            }
+        }
         Err(e) if db::is_unique_violation(&e) => err(StatusCode::CONFLICT, "用户名已存在"),
         Err(e) => internal(e),
     }

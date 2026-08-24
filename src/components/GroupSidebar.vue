@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { Group } from '../types'
+import { NO_GROUP_NAME, type Group } from '../types'
 import ContextMenu, { type ContextMenuItem } from './ContextMenu.vue'
 
 const props = defineProps<{
@@ -68,13 +68,25 @@ function openGroupCtx(group: Group, e: MouseEvent) {
         action: () => moveGroup(group, 1),
       },
       { divider: true },
-      { label: '编辑分组', icon: 'mdi-pencil', action: () => emit('rename', group) },
+      // 系统分组「无分组」承载被删分组的任务，不可编辑/删除
+      ...(group.name === NO_GROUP_NAME
+        ? []
+        : [{ label: '编辑分组', icon: 'mdi-pencil', action: () => emit('rename', group) }]),
       {
         label: group.locked ? '解锁清单' : '锁定清单',
         icon: group.locked ? 'mdi-lock-open' : 'mdi-lock',
         action: () => emit('toggle-lock', group),
       },
-      { label: '删除', icon: 'mdi-delete', color: 'error', action: () => emit('delete', group) },
+      ...(group.name === NO_GROUP_NAME
+        ? []
+        : [
+            {
+              label: '删除',
+              icon: 'mdi-delete',
+              color: 'error',
+              action: () => emit('delete', group),
+            },
+          ]),
     ],
   }
 }
@@ -121,6 +133,7 @@ function openGroupCtx(group: Group, e: MouseEvent) {
             />
             <v-divider />
             <v-list-item
+              v-if="group.name !== NO_GROUP_NAME"
               prepend-icon="mdi-pencil"
               title="编辑分组"
               subtitle="名称与描述"
@@ -133,6 +146,7 @@ function openGroupCtx(group: Group, e: MouseEvent) {
               @click="$emit('toggle-lock', group)"
             />
             <v-list-item
+              v-if="group.name !== NO_GROUP_NAME"
               prepend-icon="mdi-delete"
               title="删除"
               color="error"

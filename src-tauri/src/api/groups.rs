@@ -73,6 +73,12 @@ pub async fn update_group(
     }
     let c = st.db.lock().unwrap();
     if let Some(name) = &body.name {
+        // 系统分组不可改名，先行拦截给出可读错误（db 层同样兜底）
+        if let Ok(Some(g)) = db::get_group(&c, cur.0, id) {
+            if g.name == db::NO_GROUP {
+                return err(StatusCode::CONFLICT, "系统分组「无分组」不可重命名");
+            }
+        }
         match db::rename_group(&c, cur.0, id, name.trim()) {
             Ok(Some(_)) => {}
             Ok(None) => return err(StatusCode::NOT_FOUND, "分组不存在"),
@@ -109,6 +115,12 @@ pub async fn delete_group(
     Path(id): Path<i64>,
 ) -> ApiResult {
     let c = st.db.lock().unwrap();
+    // 系统分组不可删除，先行拦截给出可读错误（db 层同样兜底）
+    if let Ok(Some(g)) = db::get_group(&c, cur.0, id) {
+        if g.name == db::NO_GROUP {
+            return err(StatusCode::CONFLICT, "系统分组「无分组」不可删除");
+        }
+    }
     match db::delete_group(&c, cur.0, id) {
         Ok(true) => ok_json(json!({ "ok": true })),
         Ok(false) => err(StatusCode::NOT_FOUND, "分组不存在"),

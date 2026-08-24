@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Group, Task } from '../types'
 
-const props = defineProps<{
+defineProps<{
   /** 回收站中的分组 */
   groups: Group[]
   /** 回收站中的任务 */
@@ -32,11 +32,6 @@ function formatDue(iso: string): string {
 function groupNameOf(groupId: number, activeGroups: Group[]): string {
   const g = activeGroups.find((x) => x.id === groupId)
   return g ? g.name : '（分组已删除）'
-}
-
-/** 回收站中属于该分组的任务数（随分组一并删除的任务） */
-function trashTaskCount(groupId: number): number {
-  return props.tasks.filter((t) => t.group_id === groupId).length
 }
 
 /** 未完成且已过期（与普通清单的判定一致） */
@@ -74,7 +69,7 @@ function overdue(task: Task): boolean {
     <template v-if="groups.length > 0">
       <div class="text-subtitle-2 text-medium-emphasis mb-2">已删除的分组</div>
       <!-- 与任务卡片同一套样式（styles/task-card.css），左端为文件夹图标，
-           右端为恢复/彻底删除，信息 pill 展示删除时间与随组删除的任务数 -->
+           右端为恢复/彻底删除，信息 pill 展示删除时间与任务去向提示 -->
       <div v-for="group in groups" :key="group.id" class="task-item">
         <v-icon icon="mdi-folder-remove-outline" size="18" class="task-lead" color="grey" />
         <div class="task-main">
@@ -85,9 +80,9 @@ function overdue(task: Task): boolean {
               <i class="mdi mdi-trash-can-outline"></i>
               删除于 {{ formatTime(group.deleted_at!) }}
             </span>
-            <span v-if="trashTaskCount(group.id) > 0" class="task-pill">
-              <i class="mdi mdi-format-list-checks"></i>
-              {{ trashTaskCount(group.id) }} 个任务
+            <span class="task-pill">
+              <i class="mdi mdi-folder-move-outline"></i>
+              组内任务已移入「无分组」
             </span>
           </div>
         </div>
@@ -96,7 +91,7 @@ function overdue(task: Task): boolean {
             icon="mdi-restore"
             size="small"
             variant="text"
-            title="恢复分组及其任务"
+            title="恢复分组"
             @click="$emit('restore', 'group', group.id)"
           />
           <v-btn
@@ -104,7 +99,7 @@ function overdue(task: Task): boolean {
             size="small"
             variant="text"
             color="error"
-            title="彻底删除分组及其任务"
+            title="彻底删除分组"
             @click="$emit('purge', 'group', group.id)"
           />
         </div>

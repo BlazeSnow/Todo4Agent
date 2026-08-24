@@ -52,7 +52,7 @@ pub fn archive_task(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool>
     Ok(n > 0)
 }
 
-/// 取消归档（回到原清单；原分组已被删除时回落到默认分组「快速清单」，避免任务落入侧边栏不可见的位置）；
+/// 取消归档（回到原清单；原分组已被删除时回落到系统分组「无分组」，避免任务落入侧边栏不可见的位置）；
 /// 不存在、未归档、已删除或不属于该用户返回 Ok(false)
 pub fn unarchive_task(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> {
     let tx = conn.unchecked_transaction()?;
@@ -70,7 +70,7 @@ pub fn unarchive_task(conn: &Connection, user_id: i64, id: i64) -> SqlResult<boo
         return Ok(false);
     };
     let target = if group_deleted_at.is_some() {
-        ensure_default_group(&tx, user_id)?
+        ensure_no_group(&tx, user_id)?
     } else {
         group_id
     };

@@ -1,3 +1,6 @@
+/** 系统分组「无分组」名：分组被删除时其任务移入该分组；不可删除、不可改名 */
+export const NO_GROUP_NAME = '无分组'
+
 /** 分组 */
 export interface Group {
   id: number
