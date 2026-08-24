@@ -18,6 +18,7 @@ use tauri::{
 mod api;
 mod auth;
 mod db;
+mod lang;
 mod mcp;
 
 /// 命令行运行模式
