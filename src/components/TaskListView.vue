@@ -132,6 +132,15 @@ const sortOptions: { value: SortMode | null; label: string }[] = [
   { value: 'title', label: '按标题' },
 ]
 
+// ---------- 双击编辑 ----------
+
+/** 双击卡片打开编辑；起始于勾选框或操作按钮的双击不触发（保留其原生行为） */
+function onDblClick(task: Task, e: MouseEvent) {
+  const el = e.target as HTMLElement
+  if (el.closest('.task-check, .task-actions')) return
+  emit('edit', task)
+}
+
 // ---------- 展示辅助 ----------
 
 function formatDue(iso: string): string {
@@ -182,7 +191,14 @@ function overdue(task: Task): boolean {
     <div v-if="loading" class="list-loading" />
 
     <!-- 任务卡片（原生结构，样式与回收站共享，见 styles/task-card.css） -->
-    <div class="task-item" v-for="task in displayedTasks" :key="task.id" @contextmenu.stop="openTaskCtx(task, $event)">
+    <div
+      class="task-item"
+      v-for="task in displayedTasks"
+      :key="task.id"
+      :title="`双击编辑：${task.title}`"
+      @contextmenu.stop="openTaskCtx(task, $event)"
+      @dblclick="onDblClick(task, $event)"
+    >
       <input
         type="checkbox"
         class="task-check task-lead"
