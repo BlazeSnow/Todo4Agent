@@ -130,13 +130,15 @@ function groupNameOf(groupId: number): string {
 
 <style scoped>
 /* Vuetify 竖向 side-end 时间线的 body 列为 auto 且 justify-self:flex-start，
-   条目会收缩到内容宽度；改为 1fr + stretch 让其占满时间线右侧全部宽度 */
+   条目会收缩到内容宽度；列改为 1fr、条目 stretch 让其占满右侧全部宽度。
+   Vuetify 对奇数项还有一条含 :nth-child 与两个 :not 的 7 级 class 规则
+   强制 flex-start，逐级拼选择器不可维护，用 !important 压制 */
 .v-timeline--vertical.v-timeline--density-compact.v-timeline--side-end {
   grid-template-columns: 0 min-content 1fr;
 }
 :deep(.v-timeline-item__body) {
-  justify-self: stretch;
-  padding-inline-start: 12px;
+  justify-self: stretch !important;
+  padding-inline-start: 12px !important;
 }
 
 /* 无界扁平条目：单行（标题 + 分组 + 时间 + 操作），有描述时另起一行 */
