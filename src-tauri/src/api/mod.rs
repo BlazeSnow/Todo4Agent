@@ -4,8 +4,8 @@
 //! 应用启动即播种初始用户 admin，故不存在无用户的“本地模式”。
 
 use axum::{
-    extract::{Request, State},
-    http::{header, HeaderMap, StatusCode},
+    extract::{FromRequestParts, Request, State},
+    http::{header, request::Parts, HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{delete, get, patch, post},
@@ -23,6 +23,7 @@ use std::{
 use tower::Service;
 
 use crate::db;
+use crate::lang::{t, Lang};
 
 pub struct AppState {
     pub db: Mutex<Connection>,
@@ -45,10 +46,15 @@ pub(crate) fn err(code: StatusCode, msg: &str) -> ApiResult {
     (code, Json(json!({ "error": msg })))
 }
 
-pub(crate) fn internal(e: rusqlite::Error) -> ApiResult {
+/// 以该语言返回错误响应（中英对照取值）
+pub(crate) fn err_l(lang: Lang, code: StatusCode, zh: &'static str, en: &'static str) -> ApiResult {
+    err(code, t(lang, zh, en))
+}
+
+pub(crate) fn internal(lang: Lang, e: rusqlite::Error) -> ApiResult {
     err(
         StatusCode::INTERNAL_SERVER_ERROR,
-        &format!("数据库错误: {e}"),
+        &format!("{}: {e}", t(lang, "数据库错误", "Database error")),
     )
 }
 
@@ -58,6 +64,21 @@ pub(crate) fn bearer_token(headers: &HeaderMap) -> Option<&str> {
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
+}
+
+/// 请求语言提取器：依据 Accept-Language 头（缺省中文）。
+/// 处理器加 `lang: Lang` 参数即可获得本请求的消息语言
+impl<S> FromRequestParts<S> for Lang
+where
+    S: Send + Sync,
+{
+    type Rejection = Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(Lang::from_accept_language(
+            parts.headers.get(header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()),
+        ))
+    }
 }
 
 
@@ -84,8 +105,13 @@ async fn require_auth(State(st): State<SharedState>, mut req: Request, next: Nex
     if public {
         return next.run(req).await;
     }
-    let unauthorized =
-        (StatusCode::UNAUTHORIZED, Json(json!({ "error": "未登录或登录已失效" }))).into_response();
+    let unauthorized = {
+        let lang = Lang::from_accept_language(
+            req.headers().get(header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()),
+        );
+        err_l(lang, StatusCode::UNAUTHORIZED, "未登录或登录已失效", "Not signed in or session expired")
+            .into_response()
+    };
     // 会话直接查库：与桌面 / mcp 进程共享同一数据库，签发与吊销实时一致
     let uid = bearer_token(req.headers()).and_then(|t| {
         let c = st.db.lock().unwrap();

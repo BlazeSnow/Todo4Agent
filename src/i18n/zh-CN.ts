@@ -36,6 +36,7 @@ export default {
     groupRestoredRenamed: '原名被占用，已恢复并重命名为：{name}',
     groupRestored: '已恢复分组及其任务',
     exported: '已导出 JSON',
+    sessionExpired: '登录已失效，请重新登录',
   },
   confirm: {
     title: '确认删除',

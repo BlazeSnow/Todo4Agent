@@ -1,3 +1,4 @@
+import { i18n, locale } from './i18n'
 import type {
   AuthStatus,
   ExportDoc,
@@ -22,7 +23,11 @@ export function setToken(token: string | null): void {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    // 后端错误信息按界面语言返回
+    'Accept-Language': locale.value,
+  }
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
   // 禁用浏览器缓存：认证状态与数据接口必须实时（避免 GET 被启发式缓存）
@@ -30,7 +35,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 401 && !path.startsWith('/auth/')) {
     // 会话失效：清除 token，由 App 切换到登录界面
     setToken(null)
-    const err = new Error('登录已失效，请重新登录') as Error & { status: number }
+    const err = new Error(i18n.global.t('app.sessionExpired')) as Error & { status: number }
     err.status = 401
     throw err
   }

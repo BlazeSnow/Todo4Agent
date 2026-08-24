@@ -13,11 +13,12 @@ use crate::db;
 pub async fn export_json(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
+    lang: Lang,
 ) -> ApiResult {
     let c = st.db.lock().unwrap();
     match db::export_all(&c, cur.0) {
         Ok(doc) => ok_json(serde_json::to_value(doc).unwrap()),
-        Err(e) => internal(e),
+        Err(e) => internal(lang, e),
     }
 }
 
@@ -25,15 +26,16 @@ pub async fn export_json(
 pub async fn import_json(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
+    lang: Lang,
     Json(doc): Json<db::ExportDoc>,
 ) -> ApiResult {
     if doc.groups.is_empty() {
-        return err(StatusCode::BAD_REQUEST, "导入内容为空");
+        return err_l(lang, StatusCode::BAD_REQUEST, "导入内容为空", "Import content is empty");
     }
     let c = st.db.lock().unwrap();
     match db::import_doc(&c, cur.0, &doc) {
         Ok(r) => ok_json(serde_json::to_value(r).unwrap()),
-        Err(e) => internal(e),
+        Err(e) => internal(lang, e),
     }
 }
 
@@ -94,29 +96,30 @@ pub struct SettingsInput {
 /// 保存服务设置：只更新传入的字段（webui_lan 与 port 重启后生效，其余立即生效）
 pub async fn update_settings(
     State(st): State<SharedState>,
+    lang: Lang,
     Json(body): Json<SettingsInput>,
 ) -> ApiResult {
     if let Some(p) = body.port {
         if !(1024..=65535).contains(&p) {
-            return err(StatusCode::BAD_REQUEST, "端口范围：1024-65535");
+            return err_l(lang, StatusCode::BAD_REQUEST, "端口范围：1024-65535", "Port range: 1024-65535");
         }
     }
     let c = st.db.lock().unwrap();
     if let Some(p) = body.port {
         if let Err(e) = db::set_setting(&c, db::SETTINGS_PORT_KEY, &p.to_string()) {
-            return internal(e);
+            return internal(lang, e);
         }
     }
     if let Some(v) = body.webui_lan {
         if let Err(e) = db::set_setting(&c, db::SETTINGS_WEBUI_LAN_KEY, if v { "1" } else { "0" })
         {
-            return internal(e);
+            return internal(lang, e);
         }
     }
     if let Some(v) = body.allow_register {
         if let Err(e) = db::set_setting(&c, db::SETTINGS_ALLOW_REGISTER_KEY, if v { "1" } else { "0" })
         {
-            return internal(e);
+            return internal(lang, e);
         }
     }
     ok_json(json!({

@@ -36,6 +36,7 @@ export default {
     groupRestoredRenamed: 'Original name was taken; restored and renamed to: {name}',
     groupRestored: 'Group and its tasks restored',
     exported: 'JSON exported',
+    sessionExpired: 'Session expired, please sign in again',
   },
   confirm: {
     title: 'Confirm deletion',
