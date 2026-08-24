@@ -102,13 +102,27 @@ pub fn restore_group(
     }))
 }
 
-/// 彻底删除分组及其下任务（物理删除，不可恢复；仅限该用户的分组）
+/// 彻底删除分组及其下任务（物理删除，不可恢复；仅限该用户的分组）。
+/// 组内已归档任务不受影响：移动到默认分组「快速清单」继续保留在归档中
 pub fn purge_group(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> {
     let tx = conn.unchecked_transaction()?;
+    let owned = tx
+        .query_row(
+            "SELECT 1 FROM groups WHERE id = ?1 AND user_id = ?2",
+            params![id, user_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !owned {
+        return Ok(false);
+    }
+    let default = ensure_default_group(&tx, user_id)?;
     tx.execute(
-        "DELETE FROM tasks WHERE group_id = ?1 AND group_id IN (SELECT id FROM groups WHERE user_id = ?2)",
-        params![id, user_id],
+        "UPDATE tasks SET group_id = ?1 WHERE group_id = ?2 AND archived_at IS NOT NULL AND deleted_at IS NULL",
+        params![default, id],
     )?;
+    tx.execute("DELETE FROM tasks WHERE group_id = ?1", params![id])?;
     let n = tx.execute(
         "DELETE FROM groups WHERE id = ?1 AND user_id = ?2",
         params![id, user_id],
@@ -117,9 +131,26 @@ pub fn purge_group(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> 
     Ok(n > 0)
 }
 
-/// 清空回收站：彻底删除该用户所有已删除的分组与任务
+/// 清空回收站：彻底删除该用户所有已删除的分组与任务。
+/// 这些分组下仍保留的已归档任务移动到默认分组「快速清单」，不随分组清理
 pub fn empty_trash(conn: &Connection, user_id: i64) -> SqlResult<()> {
     let tx = conn.unchecked_transaction()?;
+    // 仅在确有回收站分组时才处理归档任务回落，避免无谓地重建默认分组
+    let has_trashed_groups: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM groups WHERE user_id = ?1 AND deleted_at IS NOT NULL)",
+            params![user_id],
+            |row| row.get(0),
+        )?;
+    if has_trashed_groups {
+        let default = ensure_default_group(&tx, user_id)?;
+        tx.execute(
+            "UPDATE tasks SET group_id = ?1
+             WHERE archived_at IS NOT NULL AND deleted_at IS NULL
+               AND group_id IN (SELECT id FROM groups WHERE user_id = ?2 AND deleted_at IS NOT NULL)",
+            params![default, user_id],
+        )?;
+    }
     tx.execute(
         "DELETE FROM tasks WHERE deleted_at IS NOT NULL
          AND group_id IN (SELECT id FROM groups WHERE user_id = ?1)",
@@ -187,6 +218,58 @@ mod tests {
         let (groups, tasks) = list_trash(&c, admin).unwrap();
         assert!(groups.is_empty());
         assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn archived_tasks_survive_group_deletion() {
+        let (c, admin) = test_conn();
+        let default = list_groups(&c, admin).unwrap()[0].id; // 快速清单
+        let g = create_group(&c, admin, "归档保留组", "").unwrap();
+        let active = create_task(&c, admin, g.id, "进行中", "", None).unwrap();
+        let archived = create_task(&c, admin, g.id, "已完成", "", None).unwrap();
+        archive_task(&c, admin, archived.id).unwrap();
+
+        // 删除分组：未归档任务进回收站，归档任务保留在归档
+        assert!(delete_group(&c, admin, g.id).unwrap());
+        let (groups, tasks) = list_trash(&c, admin).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert!(tasks.iter().any(|t| t.id == active.id));
+        assert!(!tasks.iter().any(|t| t.id == archived.id));
+        let arc = list_archived(&c, admin).unwrap();
+        assert_eq!(arc.len(), 1);
+        assert_eq!(arc[0].id, archived.id);
+
+        // 取消归档：原分组已删 → 回落到默认分组
+        assert!(unarchive_task(&c, admin, archived.id).unwrap());
+        let back = list_tasks(&c, admin, None).unwrap();
+        assert_eq!(back.iter().find(|t| t.id == archived.id).unwrap().group_id, default);
+
+        // 再归档后彻底删除分组：归档任务移入默认分组，继续保留在归档
+        archive_task(&c, admin, archived.id).unwrap();
+        assert!(purge_group(&c, admin, g.id).unwrap());
+        let arc = list_archived(&c, admin).unwrap();
+        assert_eq!(arc.len(), 1);
+        assert_eq!(arc[0].id, archived.id);
+        assert_eq!(arc[0].group_id, default);
+
+        // 清空回收站同样不丢归档任务
+        let g2 = create_group(&c, admin, "清空组", "").unwrap();
+        let a2 = create_task(&c, admin, g2.id, "归档二", "", None).unwrap();
+        archive_task(&c, admin, a2.id).unwrap();
+        delete_group(&c, admin, g2.id).unwrap();
+        empty_trash(&c, admin).unwrap();
+        let arc = list_archived(&c, admin).unwrap();
+        assert!(arc.iter().any(|t| t.id == a2.id && t.group_id == default));
+        assert!(list_trash(&c, admin).unwrap().0.is_empty());
+
+        // 极端情况：默认分组自身被删除并清空时，重建默认分组承接归档任务
+        let a3 = create_task(&c, admin, default, "默认组归档", "", None).unwrap();
+        archive_task(&c, admin, a3.id).unwrap();
+        delete_group(&c, admin, default).unwrap();
+        empty_trash(&c, admin).unwrap();
+        let arc = list_archived(&c, admin).unwrap();
+        assert!(arc.iter().any(|t| t.id == a3.id));
+        assert!(list_groups(&c, admin).unwrap().iter().any(|g| g.name == DEFAULT_GROUP));
     }
 
     #[test]

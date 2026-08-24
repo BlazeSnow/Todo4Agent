@@ -52,14 +52,34 @@ pub fn archive_task(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool>
     Ok(n > 0)
 }
 
-/// 取消归档（回到原清单）；不存在、未归档、已删除或不属于该用户返回 Ok(false)
+/// 取消归档（回到原清单；原分组已被删除时回落到默认分组「快速清单」，避免任务落入侧边栏不可见的位置）；
+/// 不存在、未归档、已删除或不属于该用户返回 Ok(false)
 pub fn unarchive_task(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> {
-    let n = conn.execute(
-        "UPDATE tasks SET archived_at = NULL, updated_at = ?1
-         WHERE id = ?2 AND archived_at IS NOT NULL AND deleted_at IS NULL
-         AND group_id IN (SELECT id FROM groups WHERE user_id = ?3)",
-        params![now(), id, user_id],
+    let tx = conn.unchecked_transaction()?;
+    let group: Option<(i64, Option<String>)> = tx
+        .query_row(
+            "SELECT t.group_id, g.deleted_at FROM tasks t
+             JOIN groups g ON g.id = t.group_id
+             WHERE t.id = ?1 AND t.deleted_at IS NULL AND t.archived_at IS NOT NULL
+               AND g.user_id = ?2",
+            params![id, user_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((group_id, group_deleted_at)) = group else {
+        return Ok(false);
+    };
+    let target = if group_deleted_at.is_some() {
+        ensure_default_group(&tx, user_id)?
+    } else {
+        group_id
+    };
+    let n = tx.execute(
+        "UPDATE tasks SET archived_at = NULL, updated_at = ?1, group_id = ?2
+         WHERE id = ?3 AND archived_at IS NOT NULL AND deleted_at IS NULL",
+        params![now(), target, id],
     )?;
+    tx.commit()?;
     Ok(n > 0)
 }
 

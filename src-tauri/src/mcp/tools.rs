@@ -130,7 +130,7 @@ pub(super) fn tools() -> Vec<ToolDef> {
         ),
         ToolDef::new(
             "group_delete",
-            "删除任务分组（其下任务一并移入回收站）",
+            "删除任务分组（其下未归档任务一并移入回收站，已归档任务保留在归档中）",
             json!({
                 "type": "object",
                 "properties": { "id": { "type": "integer", "description": "分组 id（必填）" } },

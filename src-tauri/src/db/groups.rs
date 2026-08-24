@@ -121,7 +121,8 @@ pub fn reorder_groups(conn: &Connection, user_id: i64, group_ids: &[i64]) -> Sql
     tx.commit()
 }
 
-/// 软删除分组（连同其下任务一并进入回收站）；不存在、已删除或不属于该用户返回 Ok(false)
+/// 软删除分组（组内未归档任务一并进入回收站；已归档任务保留在归档中，不受分组删除影响）；
+/// 不存在、已删除或不属于该用户返回 Ok(false)
 pub fn delete_group(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> {
     let tx = conn.unchecked_transaction()?;
     let n = tx.execute(
@@ -129,13 +130,30 @@ pub fn delete_group(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool>
         params![now(), id, user_id],
     )?;
     if n > 0 {
+        // 仅级联未归档任务：归档任务独立于分组生命周期，供归档界面继续展示
         tx.execute(
-            "UPDATE tasks SET deleted_at = ?1 WHERE group_id = ?2 AND deleted_at IS NULL",
+            "UPDATE tasks SET deleted_at = ?1 WHERE group_id = ?2 AND deleted_at IS NULL AND archived_at IS NULL",
             params![now(), id],
         )?;
     }
     tx.commit()?;
     Ok(n > 0)
+}
+
+/// 该用户「快速清单」分组 id；不存在（被删除或清空）时重建空分组并返回。
+/// 归档任务在原分组被删除/清理时回落到该分组
+pub fn ensure_default_group(conn: &Connection, user_id: i64) -> SqlResult<i64> {
+    let existing: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM groups WHERE user_id = ?1 AND name = ?2 AND deleted_at IS NULL",
+            params![user_id, DEFAULT_GROUP],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(id) = existing {
+        return Ok(id);
+    }
+    Ok(create_group(conn, user_id, DEFAULT_GROUP, "")?.id)
 }
 
 

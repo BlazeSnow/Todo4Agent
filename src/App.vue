@@ -363,15 +363,15 @@ async function onReorderGroups(groupIds: number[]) {
 const confirmMessage = computed(() => {
   switch (confirmAction.value?.type) {
     case 'group':
-      return '删除后分组及其任务将移入回收站，可随时恢复。确定删除吗？'
+      return '删除后分组及其未归档任务将移入回收站，可随时恢复；已归档任务保留在归档中。确定删除吗？'
     case 'task':
       return '删除后任务将移入回收站，可随时恢复。确定删除吗？'
     case 'purgeGroup':
-      return '将彻底删除该分组及其任务，不可恢复。确定继续吗？'
+      return '将彻底删除该分组及回收站中的任务，不可恢复；组内已归档任务会移入「快速清单」继续保留。确定继续吗？'
     case 'purgeTask':
       return '将彻底删除该任务，不可恢复。确定继续吗？'
     case 'emptyTrash':
-      return '将彻底删除回收站中的所有内容，不可恢复。确定继续吗？'
+      return '将彻底删除回收站中的所有分组与任务，不可恢复；分组的已归档任务会移入「快速清单」继续保留。确定继续吗？'
     case 'archivedTask':
       return '任务将移入回收站，可随时恢复。确定移出归档吗？'
     default:
