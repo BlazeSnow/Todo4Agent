@@ -29,6 +29,8 @@ export interface Task {
   sort_order: number
   /** 回收站标记：非 null 表示已删除 */
   deleted_at: string | null
+  /** 归档标记：非 null 表示已归档（值为归档时间） */
+  archived_at: string | null
 }
 
 /** 建任务输入 */

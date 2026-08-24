@@ -15,6 +15,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'create'): void
   (e: 'edit', task: Task): void
+  (e: 'archive', task: Task): void
   (e: 'toggle', task: Task): void
   (e: 'remove', task: Task): void
   (e: 'reorder', taskIds: number[]): void
@@ -110,6 +111,11 @@ function openTaskCtx(task: Task, e: MouseEvent) {
         : []),
       { divider: true },
       { label: '编辑', icon: 'mdi-pencil', action: () => emit('edit', task) },
+      {
+        label: '归档',
+        icon: 'mdi-archive-arrow-down-outline',
+        action: () => emit('archive', task),
+      },
       {
         label: '删除',
         icon: 'mdi-delete',
@@ -225,6 +231,12 @@ function overdue(task: Task): boolean {
               prepend-icon="mdi-pencil"
               title="编辑"
               @click="$emit('edit', task)"
+            />
+            <v-list-item
+              prepend-icon="mdi-archive-arrow-down-outline"
+              title="归档"
+              subtitle="保留在归档时间线中"
+              @click="$emit('archive', task)"
             />
             <v-list-item
               prepend-icon="mdi-delete"

@@ -11,6 +11,7 @@ import SettingsView from './components/SettingsView.vue'
 import MCPView from './components/MCPView.vue'
 import PromptView from './components/PromptView.vue'
 import TrashView from './components/TrashView.vue'
+import ArchiveView from './components/ArchiveView.vue'
 import LoginView from './components/LoginView.vue'
 import {
   authLogout,
@@ -20,11 +21,14 @@ import {
   deleteGroup,
   deleteTask,
   emptyTrash,
+  archiveTask,
+  listArchive,
   listGroups,
   listTasks,
   listTrash,
   purgeGroup,
   purgeTask,
+  unarchiveTask,
   updateGroup,
   reorderGroups,
   reorderTasks,
@@ -58,9 +62,9 @@ const groupDialog = ref(false)
 const groupDialogMode = ref<'create' | 'rename'>('create')
 const groupDialogTarget = ref<Group | null>(null)
 const confirmDialog = ref(false)
-type TrashAction = 'group' | 'task' | 'purgeGroup' | 'purgeTask' | 'emptyTrash'
+type TrashAction = 'group' | 'task' | 'purgeGroup' | 'purgeTask' | 'emptyTrash' | 'archivedTask'
 const confirmAction = ref<{ type: TrashAction; id?: number } | null>(null)
-const currentView = ref<'tasks' | 'settings' | 'mcp' | 'prompt' | 'trash'>('tasks')
+const currentView = ref<'tasks' | 'settings' | 'mcp' | 'prompt' | 'archive' | 'trash'>('tasks')
 
 // ---------- 认证门控 ----------
 
@@ -115,8 +119,20 @@ async function loadTrash() {
 }
 
 watch(currentView, (v) => {
+  if (v === 'archive') loadArchive()
   if (v === 'trash') loadTrash()
 })
+
+// 归档
+const archiveTasks = ref<Task[]>([])
+
+async function loadArchive() {
+  try {
+    archiveTasks.value = await listArchive()
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
 
 const selectedGroup = computed(
   () => groups.value.find((g) => g.id === selectedGroupId.value) ?? null,
@@ -165,6 +181,7 @@ watch(selectedGroupId, loadTasks)
 async function refresh() {
   await loadGroups()
   if (selectedGroupId.value != null) await loadTasks()
+  if (currentView.value === 'archive') await loadArchive()
   if (currentView.value === 'trash') await loadTrash()
 }
 
@@ -254,6 +271,35 @@ function openEditTask(task: Task) {
   taskDialog.value = true
 }
 
+/** 归档任务：从清单移入归档（时间线保留，可恢复） */
+async function onArchiveTask(task: Task) {
+  try {
+    await archiveTask(task.id)
+    notify(`已归档：${task.title}`)
+    await loadTasks()
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
+/** 取消归档：任务回到原清单 */
+async function onUnarchiveTask(task: Task) {
+  try {
+    await unarchiveTask(task.id)
+    notify(`已取消归档：${task.title}`)
+    await loadArchive()
+    // 任务回到清单：当前分组列表可能仍是旧数据，一并刷新
+    await loadTasks()
+  } catch (e) {
+    notify((e as Error).message)
+  }
+}
+
+function onRemoveArchivedTask(task: Task) {
+  confirmAction.value = { type: 'archivedTask', id: task.id }
+  confirmDialog.value = true
+}
+
 async function onTaskDialogSave(input: TaskInput) {
   try {
     if (editingTask.value) {
@@ -326,6 +372,8 @@ const confirmMessage = computed(() => {
       return '将彻底删除该任务，不可恢复。确定继续吗？'
     case 'emptyTrash':
       return '将彻底删除回收站中的所有内容，不可恢复。确定继续吗？'
+    case 'archivedTask':
+      return '任务将移入回收站，可随时恢复。确定移出归档吗？'
     default:
       return ''
   }
@@ -361,6 +409,11 @@ async function doConfirm() {
         await emptyTrash()
         notify('回收站已清空')
         await loadTrash()
+        break
+      case 'archivedTask':
+        await deleteTask(action.id!)
+        notify('已移入回收站')
+        await loadArchive()
         break
     }
   } catch (e) {
@@ -488,6 +541,7 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
         @mcp="currentView = 'mcp'"
         @prompt="currentView = 'prompt'"
         @settings="currentView = 'settings'"
+        @archive="currentView = 'archive'"
         @trash="currentView = 'trash'"
         @reorder="onReorderGroups"
       />
@@ -505,6 +559,7 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           @edit="openEditTask"
           @toggle="onToggleTask"
           @remove="onDeleteTask"
+          @archive="onArchiveTask"
           @reorder="onReorderTasks"
         />
         <SettingsView
@@ -516,6 +571,14 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           @error="notify"
           @notify="notify"
         />
+        <ArchiveView
+          v-else-if="currentView === 'archive'"
+          :tasks="archiveTasks"
+          :active-groups="groups"
+          @restore="onUnarchiveTask"
+          @remove="onRemoveArchivedTask"
+        />
+
         <TrashView
           v-else-if="currentView === 'trash'"
           :groups="trashGroups"

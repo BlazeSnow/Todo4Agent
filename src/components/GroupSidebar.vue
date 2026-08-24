@@ -8,7 +8,7 @@ const props = defineProps<{
   selectedId: number | null
   loading: boolean
   /** 当前主视图，用于侧边栏底部入口的选中高亮 */
-  activeView: 'tasks' | 'settings' | 'mcp' | 'prompt' | 'trash'
+  activeView: 'tasks' | 'settings' | 'mcp' | 'prompt' | 'archive' | 'trash'
 }>()
 
 const emit = defineEmits<{
@@ -20,6 +20,7 @@ const emit = defineEmits<{
   (e: 'mcp'): void
   (e: 'prompt'): void
   (e: 'settings'): void
+  (e: 'archive'): void
   (e: 'trash'): void
   (e: 'reorder', groupIds: number[]): void
 }>()
@@ -143,6 +144,13 @@ function openGroupCtx(group: Group, e: MouseEvent) {
     </v-list-item>
 
     <v-list-item prepend-icon="mdi-plus" title="新增分组" @click="$emit('create')" />
+
+    <v-list-item
+      prepend-icon="mdi-archive-outline"
+      title="归档"
+      :active="activeView === 'archive'"
+      @click="$emit('archive')"
+    />
 
     <v-list-item
       prepend-icon="mdi-trash-can-outline"

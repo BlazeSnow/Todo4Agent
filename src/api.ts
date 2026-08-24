@@ -129,6 +129,23 @@ export function updateTask(id: number, patch: TaskUpdate): Promise<Task> {
   return request<Task>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(patch) })
 }
 
+// ---------- 归档 ----------
+
+export async function listArchive(): Promise<Task[]> {
+  const r = await request<{ tasks: Task[] }>('/archive')
+  return r.tasks
+}
+
+/** 归档任务（从清单移入归档） */
+export function archiveTask(id: number): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/tasks/${id}/archive`, { method: 'POST' })
+}
+
+/** 取消归档（回到原清单） */
+export function unarchiveTask(id: number): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/tasks/${id}/unarchive`, { method: 'POST' })
+}
+
 export function deleteTask(id: number): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(`/tasks/${id}`, { method: 'DELETE' })
 }
