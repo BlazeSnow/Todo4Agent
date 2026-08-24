@@ -139,10 +139,13 @@ pub(super) fn tools() -> Vec<ToolDef> {
         ),
         ToolDef::new(
             "task_list",
-            "列出任务；可按分组过滤",
+            "列出任务；可按分组过滤，可选包含已归档",
             json!({
                 "type": "object",
-                "properties": { "group_id": { "type": "integer", "description": "分组 id（可选，缺省返回全部）" } }
+                "properties": {
+                    "group_id": { "type": "integer", "description": "分组 id（可选，缺省返回全部）" },
+                    "include_archived": { "type": "boolean", "description": "包含已归档任务（可选，默认 false 仅返回未归档）" }
+                }
             }),
         ),
         ToolDef::new(
@@ -185,6 +188,24 @@ pub(super) fn tools() -> Vec<ToolDef> {
                     "done": { "type": "boolean", "description": "true 标记完成，false 恢复未完成（必填）" }
                 },
                 "required": ["id", "done"]
+            }),
+        ),
+        ToolDef::new(
+            "task_archive",
+            "归档任务（从清单移入归档，界面「归档」页可查看与恢复）",
+            json!({
+                "type": "object",
+                "properties": { "id": { "type": "integer", "description": "任务 id（必填）" } },
+                "required": ["id"]
+            }),
+        ),
+        ToolDef::new(
+            "task_unarchive",
+            "取消归档（任务回到原清单）",
+            json!({
+                "type": "object",
+                "properties": { "id": { "type": "integer", "description": "任务 id（必填）" } },
+                "required": ["id"]
             }),
         ),
         ToolDef::new(
@@ -348,7 +369,25 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
                 Ok(v) => v,
                 Err(m) => return tool_error(id, m),
             };
-            match db::list_tasks(conn, user_id, gid) {
+            let include_archived = match args.get("include_archived") {
+                None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+                Some(Value::Bool(true)) => true,
+                Some(_) => return tool_error(id, "参数错误: include_archived 必须是布尔值".into()),
+            };
+            let result = match db::list_tasks(conn, user_id, gid) {
+                Ok(mut v) => {
+                    // 包含归档时追加归档任务（按归档时间倒序）
+                    if include_archived {
+                        match db::list_archived(conn, user_id) {
+                            Ok(a) => v.extend(a),
+                            Err(e) => return db_err(e),
+                        }
+                    }
+                    Ok(v)
+                }
+                Err(e) => Err(e),
+            };
+            match result {
                 Ok(v) => tool_result(id, json!(v).to_string()),
                 Err(e) => db_err(e),
             }
@@ -453,6 +492,36 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
             match db::update_task(conn, user_id, tid, &patch) {
                 Ok(Some(t)) => tool_result(id, json!(t).to_string()),
                 Ok(None) => tool_error(id, "任务不存在".into()),
+                Err(e) => db_err(e),
+            }
+        }
+
+        "task_archive" => {
+            let tid = match arg_i64(args, "id") {
+                Ok(v) => v,
+                Err(m) => return tool_error(id, m),
+            };
+            if task_locked(conn, user_id, tid, id) {
+                return;
+            }
+            match db::archive_task(conn, user_id, tid) {
+                Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
+                Ok(false) => tool_error(id, "任务不存在或已归档".into()),
+                Err(e) => db_err(e),
+            }
+        }
+
+        "task_unarchive" => {
+            let tid = match arg_i64(args, "id") {
+                Ok(v) => v,
+                Err(m) => return tool_error(id, m),
+            };
+            if task_locked(conn, user_id, tid, id) {
+                return;
+            }
+            match db::unarchive_task(conn, user_id, tid) {
+                Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
+                Ok(false) => tool_error(id, "任务不在归档中".into()),
                 Err(e) => db_err(e),
             }
         }
@@ -593,6 +662,8 @@ mod tests {
         let names: Vec<&str> = tools().iter().map(|t| t.name).collect();
         assert!(names.contains(&"group_delete"));
         assert!(names.contains(&"task_import"));
+        assert!(names.contains(&"task_archive"));
+        assert!(names.contains(&"task_unarchive"));
         assert!(names.contains(&"user_password"));
         assert!(names.contains(&"prompt_get"));
         assert!(names.contains(&"prompt_update"));

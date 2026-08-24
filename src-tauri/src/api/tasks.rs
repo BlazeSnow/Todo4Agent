@@ -95,6 +95,48 @@ pub async fn delete_task(
     }
 }
 
+// ---------- 归档 ----------
+
+/// 归档列表（时间线展示，按归档时间倒序）
+pub async fn get_archive(
+    State(st): State<SharedState>,
+    Extension(cur): Extension<CurrentUser>,
+) -> ApiResult {
+    let c = st.db.lock().unwrap();
+    match db::list_archived(&c, cur.0) {
+        Ok(tasks) => ok_json(json!({ "tasks": tasks })),
+        Err(e) => internal(e),
+    }
+}
+
+/// 归档任务（从清单移入归档）
+pub async fn archive_task(
+    State(st): State<SharedState>,
+    Extension(cur): Extension<CurrentUser>,
+    Path(id): Path<i64>,
+) -> ApiResult {
+    let c = st.db.lock().unwrap();
+    match db::archive_task(&c, cur.0, id) {
+        Ok(true) => ok_json(json!({ "ok": true })),
+        Ok(false) => err(StatusCode::NOT_FOUND, "任务不存在或已归档"),
+        Err(e) => internal(e),
+    }
+}
+
+/// 取消归档（回到原清单）
+pub async fn unarchive_task(
+    State(st): State<SharedState>,
+    Extension(cur): Extension<CurrentUser>,
+    Path(id): Path<i64>,
+) -> ApiResult {
+    let c = st.db.lock().unwrap();
+    match db::unarchive_task(&c, cur.0, id) {
+        Ok(true) => ok_json(json!({ "ok": true })),
+        Ok(false) => err(StatusCode::NOT_FOUND, "任务不在归档中"),
+        Err(e) => internal(e),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ReorderInput {
     task_ids: Vec<i64>,

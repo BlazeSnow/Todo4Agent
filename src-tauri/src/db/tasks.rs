@@ -7,15 +7,15 @@ pub fn list_tasks(
     user_id: i64,
     group_id: Option<i64>,
 ) -> SqlResult<Vec<Task>> {
-    // 默认按手动排序序号，再按 id（创建先后）稳定排序；不含已删除任务；仅本用户分组下的任务
+    // 默认按手动排序序号，再按 id（创建先后）稳定排序；不含已删除与已归档任务；仅本用户分组下的任务
     let sql = match group_id {
         Some(_) => format!(
-            "SELECT {TASK_COLS} FROM tasks WHERE group_id = ?1 AND deleted_at IS NULL
+            "SELECT {TASK_COLS} FROM tasks WHERE group_id = ?1 AND deleted_at IS NULL AND archived_at IS NULL
              AND group_id IN (SELECT id FROM groups WHERE user_id = ?2)
              ORDER BY sort_order, id"
         ),
         None => format!(
-            "SELECT {TASK_COLS} FROM tasks WHERE deleted_at IS NULL
+            "SELECT {TASK_COLS} FROM tasks WHERE deleted_at IS NULL AND archived_at IS NULL
              AND group_id IN (SELECT id FROM groups WHERE user_id = ?1)
              ORDER BY sort_order, id"
         ),
@@ -26,6 +26,41 @@ pub fn list_tasks(
         None => stmt.query_map(params![user_id], task_from_row)?,
     };
     rows.collect()
+}
+
+// ---------- 归档 ----------
+
+/// 归档列表：该用户已归档且未删除的任务，按归档时间倒序（时间线展示）
+pub fn list_archived(conn: &Connection, user_id: i64) -> SqlResult<Vec<Task>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {TASK_COLS} FROM tasks WHERE archived_at IS NOT NULL AND deleted_at IS NULL
+         AND group_id IN (SELECT id FROM groups WHERE user_id = ?1)
+         ORDER BY archived_at DESC, id DESC"
+    ))?;
+    let rows = stmt.query_map(params![user_id], task_from_row)?;
+    rows.collect()
+}
+
+/// 归档任务（从清单移入归档）；不存在、已归档、已删除或不属于该用户返回 Ok(false)
+pub fn archive_task(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> {
+    let n = conn.execute(
+        "UPDATE tasks SET archived_at = ?1, updated_at = ?1
+         WHERE id = ?2 AND deleted_at IS NULL AND archived_at IS NULL
+         AND group_id IN (SELECT id FROM groups WHERE user_id = ?3)",
+        params![now(), id, user_id],
+    )?;
+    Ok(n > 0)
+}
+
+/// 取消归档（回到原清单）；不存在、未归档、已删除或不属于该用户返回 Ok(false)
+pub fn unarchive_task(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool> {
+    let n = conn.execute(
+        "UPDATE tasks SET archived_at = NULL, updated_at = ?1
+         WHERE id = ?2 AND archived_at IS NOT NULL AND deleted_at IS NULL
+         AND group_id IN (SELECT id FROM groups WHERE user_id = ?3)",
+        params![now(), id, user_id],
+    )?;
+    Ok(n > 0)
 }
 
 pub fn create_task(
@@ -57,6 +92,7 @@ pub fn create_task(
         updated_at: ts,
         sort_order: 0,
         deleted_at: None,
+        archived_at: None,
     })
 }
 
@@ -245,5 +281,42 @@ mod tests {
             .map(|t| t.id)
             .collect();
         assert_eq!(ids, vec![t2.id, t3.id, t1.id]);
+    }
+
+    #[test]
+    fn archive_roundtrip() {
+        let (c, admin) = test_conn();
+        let other = create_user(&c, "erin", "pass1234").unwrap();
+        let gid = list_groups(&c, admin).unwrap()[0].id;
+        let t1 = create_task(&c, admin, gid, "完成的任务", "", None).unwrap();
+        let t2 = create_task(&c, admin, gid, "另一个", "", None).unwrap();
+
+        // 归档后从清单消失、进入归档列表
+        assert!(archive_task(&c, admin, t1.id).unwrap());
+        let active = list_tasks(&c, admin, Some(gid)).unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, t2.id);
+        let archived = list_archived(&c, admin).unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, t1.id);
+        assert!(archived[0].archived_at.is_some());
+        // 重复归档 / 他人归档均无效
+        assert!(!archive_task(&c, admin, t1.id).unwrap());
+        assert!(!archive_task(&c, other.id, t2.id).unwrap());
+
+        // 取消归档回到清单
+        assert!(unarchive_task(&c, admin, t1.id).unwrap());
+        assert!(list_archived(&c, admin).unwrap().is_empty());
+        assert_eq!(list_tasks(&c, admin, Some(gid)).unwrap().len(), 2);
+        assert!(!unarchive_task(&c, admin, t1.id).unwrap());
+
+        // 归档后删除进回收站（不再出现在归档），恢复后回到归档态
+        archive_task(&c, admin, t1.id).unwrap();
+        assert!(delete_task(&c, admin, t1.id).unwrap());
+        assert!(list_archived(&c, admin).unwrap().is_empty());
+        restore_task(&c, admin, t1.id).unwrap();
+        let archived = list_archived(&c, admin).unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].id, t1.id);
     }
 }

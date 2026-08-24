@@ -44,6 +44,8 @@ pub struct Task {
     pub sort_order: i64,
     /// 回收站标记：非 null 表示已删除（软删除）
     pub deleted_at: Option<String>,
+    /// 归档标记：非 null 表示已归档（值为归档时间，供归档时间线展示）
+    pub archived_at: Option<String>,
 }
 
 /// 导出文档结构（与前端约定一致)
@@ -140,7 +142,8 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
             created_at  TEXT NOT NULL,
             updated_at  TEXT NOT NULL,
             sort_order  INTEGER NOT NULL DEFAULT 0,
-            deleted_at  TEXT
+            deleted_at  TEXT,
+            archived_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(group_id);
         CREATE TABLE IF NOT EXISTS settings (
@@ -160,6 +163,7 @@ pub fn open(path: &Path) -> SqlResult<Connection> {
     )?;
     ensure_task_sort_column(&conn)?;
     ensure_deleted_columns(&conn)?;
+    ensure_task_archived_column(&conn)?;
     ensure_group_user_column(&conn)?;
     ensure_user_default_password_column(&conn)?;
     ensure_group_locked_column(&conn)?;
@@ -201,6 +205,18 @@ fn ensure_deleted_columns(conn: &Connection) -> SqlResult<()> {
                 [],
             )?;
         }
+    }
+    Ok(())
+}
+
+/// 为旧数据库迁移 tasks.archived_at 列（任务归档标记）
+fn ensure_task_archived_column(conn: &Connection) -> SqlResult<()> {
+    let has: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'archived_at'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|n| n > 0)?;
+    if !has {
+        conn.execute("ALTER TABLE tasks ADD COLUMN archived_at TEXT", [])?;
     }
     Ok(())
 }
@@ -369,6 +385,7 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> SqlResult<Task> {
         updated_at: row.get(7)?,
         sort_order: row.get(8)?,
         deleted_at: row.get(9)?,
+        archived_at: row.get(10)?,
     })
 }
 
@@ -376,7 +393,7 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> SqlResult<Task> {
 const GROUP_COLS: &str = "id, name, description, sort_order, created_at, deleted_at, locked";
 /// 任务查询的列顺序必须与 task_from_row 一致
 const TASK_COLS: &str =
-    "id, group_id, title, description, status, due_at, created_at, updated_at, sort_order, deleted_at";
+    "id, group_id, title, description, status, due_at, created_at, updated_at, sort_order, deleted_at, archived_at";
 
 
 pub mod export;
