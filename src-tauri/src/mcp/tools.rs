@@ -94,6 +94,11 @@ pub(super) fn tools() -> Vec<ToolDef> {
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
+            "db_path",
+            "查询当前连接的数据库文件路径（本地 SQLite，可用环境变量 TODO4AGENT_DB 覆盖）",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        ToolDef::new(
             "group_list",
             "列出所有任务分组",
             json!({ "type": "object", "properties": {} }),
@@ -259,6 +264,9 @@ pub(super) fn call_tool(name: &str, args: &Value, conn: &Connection, user_id: i6
             })
             .to_string(),
         ),
+
+        // 本 MCP 进程实际打开的数据库文件（含 TODO4AGENT_DB 环境变量覆盖）
+        "db_path" => tool_result(id, json!({ "path": db::db_path() }).to_string()),
 
         "group_list" => match db::list_groups(conn, user_id) {
             Ok(v) => tool_result(id, json!(v).to_string()),
@@ -577,6 +585,7 @@ mod tests {
     fn app_version_tool_defined() {
         assert!(tools().iter().any(|t| t.name == "app_version"));
         assert!(tools().iter().any(|t| t.name == "app_release"));
+        assert!(tools().iter().any(|t| t.name == "db_path"));
     }
 
     #[test]

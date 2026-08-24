@@ -13,7 +13,7 @@ const emit = defineEmits<{
 
 // MCP 工具清单（与后端 mcp.rs 保持一致）
 const mcpTools = [
-  'app_version / app_release',
+  'app_version / app_release / db_path',
   'group_list / group_create / group_rename / group_delete',
   'task_list / task_create / task_update',
   'task_complete / task_delete / task_export / task_import',
