@@ -68,15 +68,19 @@ function openGroupCtx(group: Group, e: MouseEvent) {
         action: () => moveGroup(group, 1),
       },
       { divider: true },
-      // 系统分组「无分组」承载被删分组的任务，不可编辑/删除
+      // 系统分组「无分组」承载被删分组的任务，不可编辑/删除，也不可锁定（兜底去处须始终可编辑）
       ...(group.name === NO_GROUP_NAME
         ? []
         : [{ label: '编辑分组', icon: 'mdi-pencil', action: () => emit('rename', group) }]),
-      {
-        label: group.locked ? '解锁清单' : '锁定清单',
-        icon: group.locked ? 'mdi-lock-open' : 'mdi-lock',
-        action: () => emit('toggle-lock', group),
-      },
+      ...(group.name === NO_GROUP_NAME
+        ? []
+        : [
+            {
+              label: group.locked ? '解锁清单' : '锁定清单',
+              icon: group.locked ? 'mdi-lock-open' : 'mdi-lock',
+              action: () => emit('toggle-lock', group),
+            },
+          ]),
       ...(group.name === NO_GROUP_NAME
         ? []
         : [
@@ -140,6 +144,7 @@ function openGroupCtx(group: Group, e: MouseEvent) {
               @click="$emit('rename', group)"
             />
             <v-list-item
+              v-if="group.name !== NO_GROUP_NAME"
               :prepend-icon="group.locked ? 'mdi-lock-open' : 'mdi-lock'"
               :title="group.locked ? '解锁清单' : '锁定清单'"
               :subtitle="group.locked ? 'Agent 当前无法编辑' : '锁定后仅自己可编辑'"
