@@ -107,7 +107,7 @@ function groupNameOf(groupId: number): string {
               </template>
               <v-list density="compact">
                 <v-list-item
-                  prepend-icon="mdi-package-up-outline"
+                  prepend-icon="mdi-archive-arrow-up-outline"
                   title="取消归档"
                   subtitle="回到原清单"
                   @click="$emit('restore', task)"
