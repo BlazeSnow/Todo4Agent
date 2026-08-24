@@ -113,7 +113,8 @@ fn print_help() {
         "{}",
         r#"
 用法:
-  todo4agent              启动桌面应用（后台同时提供 WebUI 服务，默认 3000 端口）
+  todo4agent              启动桌面应用（后台同时提供 WebUI 服务，默认 3000 端口；
+                          已在运行时不会开出第二个实例，而是唤起已有窗口）
   todo4agent serve        无界面启动 WebUI / HTTP API（默认 3000 端口，占用时顺延）
   todo4agent mcp          启动 MCP Server（stdio，供 Agent 客户端连接）
   todo4agent help         显示本帮助
@@ -152,17 +153,24 @@ MCP 接入（客户端配置示例，ZCode / Claude Desktop 通用格式）:
 }
 
 fn run_desktop(port_override: Option<u16>) {
-    // 桌面模式：先启动 HTTP 服务，再创建窗口加载 WebUI
-    let port = api::spawn_server(port_override);
     let dev = std::env::var("TAURI_ENV_DEBUG").map(|v| v == "true").unwrap_or(false);
-    let url = if dev {
-        "http://localhost:3001".to_string()
-    } else {
-        format!("http://127.0.0.1:{port}")
-    };
 
     tauri::Builder::default()
+        // 桌面端单实例：重复启动时唤起已有主窗口，第二个进程随即退出。
+        // 必须最先注册——插件在 build 阶段完成检测，早于下方 setup（启动 HTTP 服务、
+        // 建窗口），第二个进程因此不会抢占顺延端口或闪现窗口。
+        // serve / mcp 模式不构建 Tauri 应用，可继续多实例并行。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .setup(move |app| {
+            // 能走到这里的一定是首个实例：先启动 HTTP 服务，再按实际端口创建窗口
+            let port = api::spawn_server(port_override);
+            let url = if dev {
+                "http://localhost:3001".to_string()
+            } else {
+                format!("http://127.0.0.1:{port}")
+            };
             let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
