@@ -446,6 +446,7 @@ mod tests {
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].name, DEFAULT_GROUP);
         assert_eq!(groups[1].name, NO_GROUP);
+        assert_eq!(groups[1].description, "");
     }
 
     #[test]

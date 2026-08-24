@@ -143,7 +143,7 @@ pub fn delete_group(conn: &Connection, user_id: i64, id: i64) -> SqlResult<bool>
     Ok(n > 0)
 }
 
-/// 该用户系统分组「无分组」id；不存在时创建并返回。
+/// 该用户系统分组「无分组」id；不存在时创建（不带描述）并返回。
 /// 分组被删除时其任务（含归档）移入该分组；取消归档 / 从回收站恢复时
 /// 原分组已不存在也回落到该分组
 pub fn ensure_no_group(conn: &Connection, user_id: i64) -> SqlResult<i64> {
@@ -155,9 +155,14 @@ pub fn ensure_no_group(conn: &Connection, user_id: i64) -> SqlResult<i64> {
         )
         .optional()?;
     if let Some(id) = existing {
+        // 清理早期版本播种的默认描述（不匹配时为无操作）
+        conn.execute(
+            "UPDATE groups SET description = '' WHERE id = ?1 AND description = ?2",
+            params![id, "分组删除后其任务的去处"],
+        )?;
         return Ok(id);
     }
-    Ok(create_group(conn, user_id, NO_GROUP, "分组删除后其任务的去处")?.id)
+    Ok(create_group(conn, user_id, NO_GROUP, "")?.id)
 }
 
 
