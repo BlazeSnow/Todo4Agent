@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
 use crate::db;
-use crate::lang::{t, Lang};
+use crate::lang::{tr, tr_a, Lang};
 
 pub(super) fn send(v: &Value) {
     let mut out = std::io::stdout().lock();
@@ -116,15 +116,10 @@ fn resolve_mcp_user(
     match (username, password) {
         (Some(u), Some(p)) => match db::verify_user(conn, u, p) {
             Ok(Some(user)) => Ok(user.id),
-            Ok(None) => Err(format!("{}：{u}", t(lang, "用户名或密码错误", "Invalid username or password"))),
-            Err(e) => Err(format!("{}：{e}", t(lang, "验证用户失败", "Failed to verify user"))),
+            Ok(None) => Err(tr_a(lang, "invalid-credentials-user", &[("user", u)])),
+            Err(e) => Err(tr_a(lang, "verify-user-failed", &[("err", &e.to_string())])),
         },
-        _ => Err(t(
-            lang,
-            "MCP 需要设置 TODO4AGENT_USERNAME 与 TODO4AGENT_PASSWORD 环境变量（运行 todo4agent help 查看接入说明）",
-            "MCP requires the TODO4AGENT_USERNAME and TODO4AGENT_PASSWORD environment variables (run todo4agent help for setup instructions)",
-        )
-        .to_string()),
+        _ => Err(tr(lang, "mcp-env-credentials")),
     }
 }
 

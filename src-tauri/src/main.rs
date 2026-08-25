@@ -15,6 +15,10 @@ use tauri::{
     AppHandle, Manager, WindowEvent,
 };
 
+// 加载 locales/ 下的 Fluent 语言包（编译期内嵌为静态 LOCALES，
+// 缺失键回落中文）；查询入口见 lang 模块
+fluent_i18n::i18n!("locales", fallback = "zh-CN");
+
 mod api;
 mod auth;
 mod db;

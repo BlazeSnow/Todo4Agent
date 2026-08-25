@@ -51,7 +51,7 @@ pub async fn auth_login(
             })),
             Err(e) => internal(lang, e),
         },
-        Ok(None) => err_l(lang, StatusCode::UNAUTHORIZED, "用户名或密码错误", "Invalid username or password"),
+        Ok(None) => err(StatusCode::UNAUTHORIZED, &tr(lang, "invalid-credentials")),
         Err(e) => internal(lang, e),
     }
 }
@@ -64,14 +64,14 @@ pub async fn auth_register(
 ) -> ApiResult {
     let username = body.username.trim();
     if username.is_empty() {
-        return err_l(lang, StatusCode::BAD_REQUEST, "用户名不能为空", "Username cannot be empty");
+        return err(StatusCode::BAD_REQUEST, &tr(lang, "username-empty"));
     }
     if body.password.len() < 4 {
-        return err_l(lang, StatusCode::BAD_REQUEST, "密码至少 4 位", "Password must be at least 4 characters");
+        return err(StatusCode::BAD_REQUEST, &tr(lang, "password-too-short"));
     }
     let c = st.db.lock().unwrap();
     if !db::get_allow_register(&c).unwrap_or(true) {
-        return err_l(lang, StatusCode::FORBIDDEN, "注册已关闭", "Registration is disabled");
+        return err(StatusCode::FORBIDDEN, &tr(lang, "registration-disabled"));
     }
     match db::create_user(&c, username, &body.password) {
         Ok(user) => {
@@ -89,7 +89,7 @@ pub async fn auth_register(
             }
         }
         Err(e) if db::is_unique_violation(&e) => {
-            err_l(lang, StatusCode::CONFLICT, "用户名已存在", "Username already exists")
+            err(StatusCode::CONFLICT, &tr(lang, "username-taken"))
         }
         Err(e) => internal(lang, e),
     }
@@ -120,7 +120,7 @@ pub async fn auth_password(
 ) -> ApiResult {
     let uid = cur.0;
     if body.new_password.len() < 4 {
-        return err_l(lang, StatusCode::BAD_REQUEST, "新密码至少 4 位", "New password must be at least 4 characters");
+        return err(StatusCode::BAD_REQUEST, &tr(lang, "new-password-too-short"));
     }
     let c = st.db.lock().unwrap();
     match db::change_user_password(&c, uid, &body.old_password, &body.new_password) {
@@ -129,7 +129,7 @@ pub async fn auth_password(
             let _ = db::delete_user_sessions(&c, uid, keep.as_deref());
             ok_json(json!({ "ok": true }))
         }
-        Ok(false) => err_l(lang, StatusCode::BAD_REQUEST, "原密码错误", "Current password is incorrect"),
+        Ok(false) => err(StatusCode::BAD_REQUEST, &tr(lang, "wrong-password")),
         Err(e) => internal(lang, e),
     }
 }

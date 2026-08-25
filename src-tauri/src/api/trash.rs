@@ -43,7 +43,7 @@ pub async fn restore_task(
     let c = st.db.lock().unwrap();
     match db::restore_task(&c, cur.0, id) {
         Ok(true) => ok_json(json!({ "ok": true })),
-        Ok(false) => err_l(lang, StatusCode::NOT_FOUND, "任务不在回收站", "Task is not in the trash"),
+        Ok(false) => err(StatusCode::NOT_FOUND, &tr(lang, "task-not-in-trash")),
         Err(e) => internal(lang, e),
     }
 }
@@ -57,7 +57,7 @@ pub async fn purge_task(
     let c = st.db.lock().unwrap();
     match db::purge_task(&c, cur.0, id) {
         Ok(true) => ok_json(json!({ "ok": true })),
-        Ok(false) => err_l(lang, StatusCode::NOT_FOUND, "任务不存在", "Task not found"),
+        Ok(false) => err(StatusCode::NOT_FOUND, &tr(lang, "task-not-found")),
         Err(e) => internal(lang, e),
     }
 }
@@ -70,7 +70,7 @@ pub async fn restore_group(
 ) -> ApiResult {
     let c = st.db.lock().unwrap();
     match db::restore_group(&c, cur.0, id) {
-        Ok(None) => err_l(lang, StatusCode::NOT_FOUND, "分组不在回收站", "Group is not in the trash"),
+        Ok(None) => err(StatusCode::NOT_FOUND, &tr(lang, "group-not-in-trash")),
         // 原名被占用时自动重命名，renamed_to 告知前端新名字
         Ok(Some(None)) => ok_json(json!({ "ok": true })),
         Ok(Some(Some(new_name))) => ok_json(json!({ "ok": true, "renamed_to": new_name })),
@@ -88,17 +88,12 @@ pub async fn purge_group(
     // 系统分组不可清理，先行拦截给出可读错误（db 层同样兜底）
     if let Ok(Some(g)) = db::get_group(&c, cur.0, id) {
         if g.name == db::NO_GROUP {
-            return err_l(
-                lang,
-                StatusCode::CONFLICT,
-                "系统分组「无分组」不可删除",
-                "The system group \"Ungrouped\" cannot be deleted",
-            );
+            return err(StatusCode::CONFLICT, &tr(lang, "no-group-delete"));
         }
     }
     match db::purge_group(&c, cur.0, id) {
         Ok(true) => ok_json(json!({ "ok": true })),
-        Ok(false) => err_l(lang, StatusCode::NOT_FOUND, "分组不存在", "Group not found"),
+        Ok(false) => err(StatusCode::NOT_FOUND, &tr(lang, "group-not-found")),
         Err(e) => internal(lang, e),
     }
 }

@@ -46,7 +46,7 @@ pub async fn create_task(
 ) -> ApiResult {
     let title = body.title.trim();
     if title.is_empty() {
-        return err_l(lang, StatusCode::BAD_REQUEST, "任务标题不能为空", "Task title cannot be empty");
+        return err(StatusCode::BAD_REQUEST, &tr(lang, "task-title-empty"));
     }
     let c = st.db.lock().unwrap();
     match db::create_task(
@@ -59,7 +59,7 @@ pub async fn create_task(
     ) {
         Ok(task) => ok_json(json!(task)),
         Err(e) if e == rusqlite::Error::QueryReturnedNoRows => {
-            err_l(lang, StatusCode::BAD_REQUEST, "分组不存在", "Group not found")
+            err(StatusCode::BAD_REQUEST, &tr(lang, "group-not-found"))
         }
         Err(e) => internal(lang, e),
     }
@@ -74,18 +74,13 @@ pub async fn update_task(
 ) -> ApiResult {
     if let Some(status) = &patch.status {
         if status != "pending" && status != "done" {
-            return err_l(
-                lang,
-                StatusCode::BAD_REQUEST,
-                "status 只能是 pending 或 done",
-                "status must be either pending or done",
-            );
+            return err(StatusCode::BAD_REQUEST, &tr(lang, "status-invalid"));
         }
     }
     let c = st.db.lock().unwrap();
     match db::update_task(&c, cur.0, id, &patch) {
         Ok(Some(task)) => ok_json(json!(task)),
-        Ok(None) => err_l(lang, StatusCode::NOT_FOUND, "任务不存在", "Task not found"),
+        Ok(None) => err(StatusCode::NOT_FOUND, &tr(lang, "task-not-found")),
         Err(e) => internal(lang, e),
     }
 }
@@ -99,7 +94,7 @@ pub async fn delete_task(
     let c = st.db.lock().unwrap();
     match db::delete_task(&c, cur.0, id) {
         Ok(true) => ok_json(json!({ "ok": true })),
-        Ok(false) => err_l(lang, StatusCode::NOT_FOUND, "任务不存在", "Task not found"),
+        Ok(false) => err(StatusCode::NOT_FOUND, &tr(lang, "task-not-found")),
         Err(e) => internal(lang, e),
     }
 }
@@ -129,12 +124,7 @@ pub async fn archive_task(
     let c = st.db.lock().unwrap();
     match db::archive_task(&c, cur.0, id) {
         Ok(true) => ok_json(json!({ "ok": true })),
-        Ok(false) => err_l(
-            lang,
-            StatusCode::NOT_FOUND,
-            "任务不存在或已归档",
-            "Task not found or already archived",
-        ),
+        Ok(false) => err(StatusCode::NOT_FOUND, &tr(lang, "task-not-found-or-archived")),
         Err(e) => internal(lang, e),
     }
 }
@@ -149,7 +139,7 @@ pub async fn unarchive_task(
     let c = st.db.lock().unwrap();
     match db::unarchive_task(&c, cur.0, id) {
         Ok(true) => ok_json(json!({ "ok": true })),
-        Ok(false) => err_l(lang, StatusCode::NOT_FOUND, "任务不在归档中", "Task is not in the archive"),
+        Ok(false) => err(StatusCode::NOT_FOUND, &tr(lang, "task-not-archived")),
         Err(e) => internal(lang, e),
     }
 }
@@ -168,13 +158,13 @@ pub async fn reorder_tasks(
     Json(body): Json<ReorderInput>,
 ) -> ApiResult {
     if body.task_ids.is_empty() {
-        return err_l(lang, StatusCode::BAD_REQUEST, "task_ids 不能为空", "task_ids cannot be empty");
+        return err(StatusCode::BAD_REQUEST, &tr(lang, "task-ids-empty"));
     }
     let c = st.db.lock().unwrap();
     match db::reorder_tasks(&c, cur.0, group_id, &body.task_ids) {
         Ok(()) => ok_json(json!({ "ok": true })),
         Err(e) if e == rusqlite::Error::QueryReturnedNoRows => {
-            err_l(lang, StatusCode::NOT_FOUND, "分组不存在", "Group not found")
+            err(StatusCode::NOT_FOUND, &tr(lang, "group-not-found"))
         }
         Err(e) => internal(lang, e),
     }

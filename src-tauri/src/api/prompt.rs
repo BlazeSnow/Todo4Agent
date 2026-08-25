@@ -58,11 +58,6 @@ pub async fn put_prompt(
             "updated_at": updated_at
         })),
         // set_prompt 的两个返回形状已穷尽
-        _ => err_l(
-            lang,
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "保存提示词结果异常",
-            "Unexpected result while saving the prompt",
-        ),
+        _ => err(StatusCode::INTERNAL_SERVER_ERROR, &tr(lang, "prompt-save-error")),
     }
 }

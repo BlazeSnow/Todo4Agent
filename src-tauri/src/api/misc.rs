@@ -30,7 +30,7 @@ pub async fn import_json(
     Json(doc): Json<db::ExportDoc>,
 ) -> ApiResult {
     if doc.groups.is_empty() {
-        return err_l(lang, StatusCode::BAD_REQUEST, "导入内容为空", "Import content is empty");
+        return err(StatusCode::BAD_REQUEST, &tr(lang, "import-empty"));
     }
     let c = st.db.lock().unwrap();
     match db::import_doc(&c, cur.0, &doc) {
@@ -101,7 +101,7 @@ pub async fn update_settings(
 ) -> ApiResult {
     if let Some(p) = body.port {
         if !(1024..=65535).contains(&p) {
-            return err_l(lang, StatusCode::BAD_REQUEST, "端口范围：1024-65535", "Port range: 1024-65535");
+            return err(StatusCode::BAD_REQUEST, &tr(lang, "port-range"));
         }
     }
     let c = st.db.lock().unwrap();

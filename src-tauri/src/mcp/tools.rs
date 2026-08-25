@@ -2,23 +2,20 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use super::{tool_error, tool_result};
-
+use crate::db;
+use crate::lang::{tr, tr_a, Lang};
 
 fn arg_str(args: &Value, key: &str, lang: Lang) -> Result<String, String> {
     match args.get(key) {
         Some(Value::String(s)) if !s.trim().is_empty() => Ok(s.trim().to_string()),
-        _ => Err(format!(
-            "{}: {key} {}",
-            t(lang, "参数错误", "Invalid argument"),
-            t(lang, "必填且不能为空", "is required and cannot be empty")
-        )),
+        _ => Err(tr_a(lang, "arg-error-required-nonempty", &[("key", key)])),
     }
 }
 
 fn arg_i64(args: &Value, key: &str, lang: Lang) -> Result<i64, String> {
     match args.get(key) {
         Some(Value::Number(n)) => n.as_i64().ok_or_else(|| arg_int_err(key, lang)),
-        _ => Err(arg_req_err(key, lang)),
+        _ => Err(tr_a(lang, "arg-error-required", &[("key", key)])),
     }
 }
 
@@ -38,49 +35,18 @@ fn arg_opt_str(args: &Value, key: &str, lang: Lang) -> Result<Option<String>, St
             let t = s.trim();
             Ok(if t.is_empty() { None } else { Some(t.to_string()) })
         }
-        Some(_) => Err(format!(
-            "{}: {key} {}",
-            t(lang, "参数错误", "Invalid argument"),
-            t(lang, "必须是字符串", "must be a string")
-        )),
+        Some(_) => Err(tr_a(lang, "arg-error-string", &[("key", key)])),
     }
 }
 
 fn arg_int_err(key: &str, lang: Lang) -> String {
-    format!(
-        "{}: {key} {}",
-        t(lang, "参数错误", "Invalid argument"),
-        t(lang, "必须是整数", "must be an integer")
-    )
-}
-
-fn arg_req_err(key: &str, lang: Lang) -> String {
-    format!(
-        "{}: {key} {}",
-        t(lang, "参数错误", "Invalid argument"),
-        t(lang, "必填", "is required")
-    )
-}
-
-
-
-use crate::db;
-use crate::lang::{t, Lang};
-
-/// 清单（分组）锁定提示：锁定后 Agent 无法编辑该清单，界面编辑不受影响
-fn locked_err(name: &str, lang: Lang) -> String {
-    match lang {
-        Lang::Zh => format!("清单「{name}」已锁定，Agent 无法编辑（请让用户在界面侧边栏分组菜单解锁）"),
-        Lang::En => format!(
-            "List \"{name}\" is locked and cannot be edited by the Agent (ask the user to unlock it from the sidebar group menu)"
-        ),
-    }
+    tr_a(lang, "arg-error-int", &[("key", key)])
 }
 
 /// 分组已锁定时输出错误并返回 true（调用方据此返回）
 fn group_locked(conn: &Connection, user_id: i64, group_id: i64, id: &Value, lang: Lang) -> bool {
     if let Ok(Some((name, true))) = db::group_lock_info(conn, user_id, group_id) {
-        tool_error(id, locked_err(&name, lang));
+        tool_error(id, lang.locked_err(&name));
         return true;
     }
     false
@@ -89,7 +55,7 @@ fn group_locked(conn: &Connection, user_id: i64, group_id: i64, id: &Value, lang
 /// 任务所在分组已锁定时输出错误并返回 true（调用方据此返回）
 fn task_locked(conn: &Connection, user_id: i64, task_id: i64, id: &Value, lang: Lang) -> bool {
     if let Ok(Some((_, name, true))) = db::task_group_lock(conn, user_id, task_id) {
-        tool_error(id, locked_err(&name, lang));
+        tool_error(id, lang.locked_err(&name));
         return true;
     }
     false
@@ -97,12 +63,12 @@ fn task_locked(conn: &Connection, user_id: i64, task_id: i64, id: &Value, lang: 
 
 pub(super) struct ToolDef {
     pub name: &'static str,
-    pub description: &'static str,
+    pub description: String,
     pub input_schema: Value,
 }
 
 impl ToolDef {
-    const fn new(name: &'static str, description: &'static str, input_schema: Value) -> Self {
+    fn new(name: &'static str, description: String, input_schema: Value) -> Self {
         Self {
             name,
             description,
@@ -112,252 +78,182 @@ impl ToolDef {
 }
 
 pub(super) fn tools(lang: Lang) -> Vec<ToolDef> {
+    let d = |key: &str| tr(lang, key);
     vec![
         ToolDef::new(
             "app_version",
-            t(lang, "查询应用版本号", "Get the app version"),
+            d("tool-app-version"),
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
             "app_release",
-            t(
-                lang,
-                "查询应用发布页地址（GitHub Releases）",
-                "Get the app release page URL (GitHub Releases)",
-            ),
+            d("tool-app-release"),
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
             "db_path",
-            t(
-                lang,
-                "查询当前连接的数据库文件路径（本地 SQLite，可用环境变量 TODO4AGENT_DB 覆盖）",
-                "Get the database file path in use (local SQLite; override with the TODO4AGENT_DB environment variable)",
-            ),
+            d("tool-db-path"),
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
             "group_list",
-            t(lang, "列出所有任务分组", "List all task groups"),
+            d("tool-group-list"),
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
             "group_create",
-            t(
-                lang,
-                "创建任务分组；分组名不能重复",
-                "Create a task group; group names must be unique",
-            ),
+            d("tool-group-create"),
             json!({
                 "type": "object",
                 "properties": {
-                    "name": { "type": "string", "description": t(lang, "分组名（必填）", "Group name (required)") },
-                    "description": { "type": "string", "description": t(lang, "分组描述（可选）：说明该清单的用途", "Group description (optional): what this list is for") }
+                    "name": { "type": "string", "description": d("tp-name-required") },
+                    "description": { "type": "string", "description": d("tp-desc-purpose") }
                 },
                 "required": ["name"]
             }),
         ),
         ToolDef::new(
             "group_rename",
-            t(
-                lang,
-                "重命名任务分组（可选同时更新分组描述）",
-                "Rename a task group (optionally update its description)",
-            ),
+            d("tool-group-rename"),
             json!({
                 "type": "object",
                 "properties": {
-                    "id": { "type": "integer", "description": t(lang, "分组 id", "Group id") },
-                    "name": { "type": "string", "description": t(lang, "新分组名（必填）", "New group name (required)") },
-                    "description": { "type": "string", "description": t(lang, "分组描述（可选）：传入即更新，传空字符串清空", "Group description (optional): updated when provided, empty string clears it") }
+                    "id": { "type": "integer", "description": d("tp-group-id") },
+                    "name": { "type": "string", "description": d("tp-name-new") },
+                    "description": { "type": "string", "description": d("tp-desc-update") }
                 },
                 "required": ["id", "name"]
             }),
         ),
         ToolDef::new(
             "group_delete",
-            t(
-                lang,
-                "删除任务分组（组内任务含归档移入「无分组」；系统分组「无分组」不可删除）",
-                "Delete a task group (its tasks, archived included, move to \"Ungrouped\"; the system group \"Ungrouped\" cannot be deleted)",
-            ),
+            d("tool-group-delete"),
             json!({
                 "type": "object",
-                "properties": { "id": { "type": "integer", "description": t(lang, "分组 id（必填）", "Group id (required)") } },
+                "properties": { "id": { "type": "integer", "description": d("tp-group-id-required") } },
                 "required": ["id"]
             }),
         ),
         ToolDef::new(
             "task_list",
-            t(
-                lang,
-                "列出任务；可按分组过滤，可选包含已归档",
-                "List tasks; filterable by group, optionally including archived ones",
-            ),
+            d("tool-task-list"),
             json!({
                 "type": "object",
                 "properties": {
-                    "group_id": { "type": "integer", "description": t(lang, "分组 id（可选，缺省返回全部）", "Group id (optional; defaults to all groups)") },
-                    "include_archived": { "type": "boolean", "description": t(lang, "包含已归档任务（可选，默认 false 仅返回未归档）", "Include archived tasks (optional; defaults to false for unarchived only)") }
+                    "group_id": { "type": "integer", "description": d("tp-group-id-optional-all") },
+                    "include_archived": { "type": "boolean", "description": d("tp-include-archived") }
                 }
             }),
         ),
         ToolDef::new(
             "task_create",
-            t(
-                lang,
-                "创建任务（默认状态 pending）",
-                "Create a task (status defaults to pending)",
-            ),
+            d("tool-task-create"),
             json!({
                 "type": "object",
                 "properties": {
-                    "group_id": { "type": "integer", "description": t(lang, "所属分组 id（必填）", "Owning group id (required)") },
-                    "title": { "type": "string", "description": t(lang, "任务标题（必填）", "Task title (required)") },
-                    "description": { "type": "string", "description": t(lang, "详细说明（可选）", "Detailed description (optional)") },
-                    "due_at": { "type": "string", "description": t(lang, "截止时间，ISO8601（可选）", "Due time, ISO8601 (optional)") }
+                    "group_id": { "type": "integer", "description": d("tp-owning-group-required") },
+                    "title": { "type": "string", "description": d("tp-title-required") },
+                    "description": { "type": "string", "description": d("tp-desc-optional") },
+                    "due_at": { "type": "string", "description": d("tp-due-optional") }
                 },
                 "required": ["group_id", "title"]
             }),
         ),
         ToolDef::new(
             "task_update",
-            t(
-                lang,
-                "更新任务字段（只修改传入的字段）",
-                "Update task fields (only provided fields are changed)",
-            ),
+            d("tool-task-update"),
             json!({
                 "type": "object",
                 "properties": {
-                    "id": { "type": "integer", "description": t(lang, "任务 id（必填）", "Task id (required)") },
-                    "group_id": { "type": "integer", "description": t(lang, "移动到的分组 id", "Group id to move the task to") },
-                    "title": { "type": "string", "description": t(lang, "新标题", "New title") },
-                    "description": { "type": "string", "description": t(lang, "新说明", "New description") },
-                    "status": { "type": "string", "enum": ["pending", "done"], "description": t(lang, "新状态", "New status") },
-                    "due_at": { "type": ["string", "null"], "description": t(lang, "新截止时间；传 null 清空", "New due time; null clears it") }
+                    "id": { "type": "integer", "description": d("tp-task-id-required") },
+                    "group_id": { "type": "integer", "description": d("tp-move-group-id") },
+                    "title": { "type": "string", "description": d("tp-new-title") },
+                    "description": { "type": "string", "description": d("tp-new-desc") },
+                    "status": { "type": "string", "enum": ["pending", "done"], "description": d("tp-new-status") },
+                    "due_at": { "type": ["string", "null"], "description": d("tp-new-due") }
                 },
                 "required": ["id"]
             }),
         ),
         ToolDef::new(
             "task_complete",
-            t(
-                lang,
-                "完成 / 取消完成一个任务（切换 done 状态）",
-                "Complete / uncomplete a task (toggles the done state)",
-            ),
+            d("tool-task-complete"),
             json!({
                 "type": "object",
                 "properties": {
-                    "id": { "type": "integer", "description": t(lang, "任务 id（必填）", "Task id (required)") },
-                    "done": { "type": "boolean", "description": t(lang, "true 标记完成，false 恢复未完成（必填）", "true marks done, false restores pending (required)") }
+                    "id": { "type": "integer", "description": d("tp-task-id-required") },
+                    "done": { "type": "boolean", "description": d("tp-done") }
                 },
                 "required": ["id", "done"]
             }),
         ),
         ToolDef::new(
             "task_archive",
-            t(
-                lang,
-                "归档任务（从清单移入归档，界面「归档」页可查看与恢复）",
-                "Archive a task (removed from its list; view and restore on the app's Archive page)",
-            ),
+            d("tool-task-archive"),
             json!({
                 "type": "object",
-                "properties": { "id": { "type": "integer", "description": t(lang, "任务 id（必填）", "Task id (required)") } },
+                "properties": { "id": { "type": "integer", "description": d("tp-task-id-required") } },
                 "required": ["id"]
             }),
         ),
         ToolDef::new(
             "task_unarchive",
-            t(
-                lang,
-                "取消归档（任务回到原清单）",
-                "Unarchive a task (returns it to its original list)",
-            ),
+            d("tool-task-unarchive"),
             json!({
                 "type": "object",
-                "properties": { "id": { "type": "integer", "description": t(lang, "任务 id（必填）", "Task id (required)") } },
+                "properties": { "id": { "type": "integer", "description": d("tp-task-id-required") } },
                 "required": ["id"]
             }),
         ),
         ToolDef::new(
             "task_delete",
-            t(lang, "删除任务", "Delete a task"),
+            d("tool-task-delete"),
             json!({
                 "type": "object",
-                "properties": { "id": { "type": "integer", "description": t(lang, "任务 id（必填）", "Task id (required)") } },
+                "properties": { "id": { "type": "integer", "description": d("tp-task-id-required") } },
                 "required": ["id"]
             }),
         ),
         ToolDef::new(
             "task_export",
-            t(
-                lang,
-                "导出任务清单与提示词为 JSON 文档（与界面导出同构）",
-                "Export task lists and the prompt as a JSON document (same structure as the UI export)",
-            ),
+            d("tool-task-export"),
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
             "task_import",
-            t(
-                lang,
-                "导入 JSON 文档（与 task_export 输出同构：同名分组并入、新分组新建，含 prompt 字段时提示词一并导入）",
-                "Import a JSON document (same structure as task_export output: same-name groups merge, new groups are created; a prompt field also imports the prompt)",
-            ),
+            d("tool-task-import"),
             json!({
                 "type": "object",
                 "properties": {
-                    "doc": {
-                        "type": "object",
-                        "description": t(
-                            lang,
-                            "任务清单文档（必填）：{version, exported_at, groups: [{name, tasks: [{title, description, status, due_at}]}]}",
-                            "Task list document (required): {version, exported_at, groups: [{name, tasks: [{title, description, status, due_at}]}]}"
-                        )
-                    }
+                    "doc": { "type": "object", "description": d("tp-doc") }
                 },
                 "required": ["doc"]
             }),
         ),
         ToolDef::new(
             "user_password",
-            t(
-                lang,
-                "修改当前账号（启动凭据对应用户）的密码；成功后该用户的已登录会话全部失效，需同步更新客户端配置中的 TODO4AGENT_PASSWORD",
-                "Change the password of the current account (the user whose credentials started this server); all its signed-in sessions are revoked on success, so update TODO4AGENT_PASSWORD in the client config accordingly",
-            ),
+            d("tool-user-password"),
             json!({
                 "type": "object",
                 "properties": {
-                    "old_password": { "type": "string", "description": t(lang, "当前密码（必填）", "Current password (required)") },
-                    "new_password": { "type": "string", "description": t(lang, "新密码，至少 4 位（必填）", "New password, at least 4 characters (required)") }
+                    "old_password": { "type": "string", "description": d("tp-old-password") },
+                    "new_password": { "type": "string", "description": d("tp-new-password") }
                 },
                 "required": ["old_password", "new_password"]
             }),
         ),
         ToolDef::new(
             "prompt_get",
-            t(
-                lang,
-                "读取当前用户的 Agent 提示词（协作规范，类似 AGENTS.md）；默认为空，content 为空表示尚未设置",
-                "Read the current user's Agent prompt (collaboration guidelines, like AGENTS.md); empty by default, an empty content means not set",
-            ),
+            d("tool-prompt-get"),
             json!({ "type": "object", "properties": {} }),
         ),
         ToolDef::new(
             "prompt_update",
-            t(
-                lang,
-                "全量更新当前用户的 Agent 提示词；建议先 prompt_get 获取当前内容，按需修改后整体写回；传空字符串为清空",
-                "Fully update the current user's Agent prompt; fetch it with prompt_get first, edit, then write the whole content back; an empty string clears it",
-            ),
+            d("tool-prompt-update"),
             json!({
                 "type": "object",
                 "properties": {
-                    "content": { "type": "string", "description": t(lang, "新提示词全文；传空字符串清空（必填）", "Full new prompt text; an empty string clears it (required)") }
+                    "content": { "type": "string", "description": d("tp-content") }
                 },
                 "required": ["content"]
             }),
@@ -373,13 +269,9 @@ pub(super) fn call_tool(
     id: &Value,
     lang: Lang,
 ) {
-    let db_err = |e: rusqlite::Error| {
-        tool_error(
-            id,
-            format!("{}: {e}", t(lang, "数据库错误", "Database error")),
-        )
-    };
-    let e = |zh: &'static str, en: &'static str| t(lang, zh, en);
+    let db_err =
+        |e: rusqlite::Error| tool_error(id, tr_a(lang, "db-error", &[("err", &e.to_string())]));
+    let e = |key: &str| tr(lang, key);
 
     match name {
         "app_version" => tool_result(
@@ -417,7 +309,7 @@ pub(super) fn call_tool(
             match db::create_group(conn, user_id, &name, &description) {
                 Ok(g) => tool_result(id, json!(g).to_string()),
                 Err(err) if db::is_unique_violation(&err) => {
-                    tool_error(id, e("分组名已存在", "Group name already exists").into())
+                    tool_error(id, e("group-name-taken"))
                 }
                 Err(err) => db_err(err),
             }
@@ -440,11 +332,7 @@ pub(super) fn call_tool(
                     None => {
                         return tool_error(
                             id,
-                            format!(
-                                "{}: description {}",
-                                t(lang, "参数错误", "Invalid argument"),
-                                t(lang, "必须是字符串", "must be a string")
-                            ),
+                            tr_a(lang, "arg-error-string", &[("key", "description")]),
                         )
                     }
                 },
@@ -455,21 +343,14 @@ pub(super) fn call_tool(
             // 系统分组不可改名，先行拦截给出可读错误（db 层同样兜底）
             if let Ok(Some(g)) = db::get_group(conn, user_id, gid) {
                 if g.name == db::NO_GROUP {
-                    return tool_error(
-                        id,
-                        e(
-                            "系统分组「无分组」不可重命名",
-                            "The system group \"Ungrouped\" cannot be renamed",
-                        )
-                        .into(),
-                    );
+                    return tool_error(id, e("no-group-rename"));
                 }
             }
             match db::rename_group(conn, user_id, gid, &name) {
                 Ok(Some(_)) => {}
-                Ok(None) => return tool_error(id, e("分组不存在", "Group not found").into()),
+                Ok(None) => return tool_error(id, e("group-not-found")),
                 Err(err) if db::is_unique_violation(&err) => {
-                    tool_error(id, e("分组名已存在", "Group name already exists").into())
+                    tool_error(id, e("group-name-taken"))
                 }
                 Err(err) => return db_err(err),
             }
@@ -481,7 +362,7 @@ pub(super) fn call_tool(
             }
             match db::get_group(conn, user_id, gid) {
                 Ok(Some(g)) => tool_result(id, json!(g).to_string()),
-                Ok(None) => tool_error(id, e("分组不存在", "Group not found").into()),
+                Ok(None) => tool_error(id, e("group-not-found")),
                 Err(err) => db_err(err),
             }
         }
@@ -497,19 +378,12 @@ pub(super) fn call_tool(
             // 系统分组不可删除，先行拦截给出可读错误（db 层同样兜底）
             if let Ok(Some(g)) = db::get_group(conn, user_id, gid) {
                 if g.name == db::NO_GROUP {
-                    return tool_error(
-                        id,
-                        e(
-                            "系统分组「无分组」不可删除",
-                            "The system group \"Ungrouped\" cannot be deleted",
-                        )
-                        .into(),
-                    );
+                    return tool_error(id, e("no-group-delete"));
                 }
             }
             match db::delete_group(conn, user_id, gid) {
                 Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
-                Ok(false) => tool_error(id, e("分组不存在", "Group not found").into()),
+                Ok(false) => tool_error(id, e("group-not-found")),
                 Err(err) => db_err(err),
             }
         }
@@ -525,11 +399,7 @@ pub(super) fn call_tool(
                 Some(_) => {
                     return tool_error(
                         id,
-                        format!(
-                            "{}: include_archived {}",
-                            t(lang, "参数错误", "Invalid argument"),
-                            t(lang, "必须是布尔值", "must be a boolean")
-                        ),
+                        tr_a(lang, "arg-error-bool", &[("key", "include_archived")]),
                     )
                 }
             };
@@ -574,7 +444,7 @@ pub(super) fn call_tool(
                 Ok(task) => tool_result(id, json!(task).to_string()),
                 // create_task 预检查分组归属，分组缺失时返回 QueryReturnedNoRows
                 Err(rusqlite::Error::QueryReturnedNoRows) => {
-                    tool_error(id, e("分组不存在", "Group not found").into())
+                    tool_error(id, e("group-not-found"))
                 }
                 Err(err) => db_err(err),
             }
@@ -598,16 +468,7 @@ pub(super) fn call_tool(
             if let Some(v) = args.get("title") {
                 match v.as_str() {
                     Some(s) if !s.trim().is_empty() => patch.title = Some(s.trim().to_string()),
-                    _ => {
-                        return tool_error(
-                            id,
-                            format!(
-                                "{}: title {}",
-                                t(lang, "参数错误", "Invalid argument"),
-                                t(lang, "不能为空", "cannot be empty")
-                            ),
-                        )
-                    }
+                    _ => return tool_error(id, tr(lang, "arg-error-title-empty")),
                 }
             }
             if let Some(v) = args.get("description") {
@@ -616,11 +477,7 @@ pub(super) fn call_tool(
                     None => {
                         return tool_error(
                             id,
-                            format!(
-                                "{}: description {}",
-                                t(lang, "参数错误", "Invalid argument"),
-                                t(lang, "必须是字符串", "must be a string")
-                            ),
+                            tr_a(lang, "arg-error-string", &[("key", "description")]),
                         )
                     }
                 }
@@ -628,16 +485,7 @@ pub(super) fn call_tool(
             if let Some(v) = args.get("status") {
                 match v.as_str() {
                     Some(s @ ("pending" | "done")) => patch.status = Some(s.to_string()),
-                    _ => {
-                        return tool_error(
-                            id,
-                            format!(
-                                "{}: status {}",
-                                t(lang, "参数错误", "Invalid argument"),
-                                t(lang, "只能是 pending 或 done", "must be either pending or done")
-                            ),
-                        )
-                    }
+                    _ => return tool_error(id, tr(lang, "arg-error-status")),
                 }
             }
             if let Some(v) = args.get("group_id") {
@@ -650,20 +498,11 @@ pub(super) fn call_tool(
                 None => {}
                 Some(Value::Null) => patch.due_at = Some(None),
                 Some(Value::String(s)) => patch.due_at = Some(Some(s.clone())),
-                Some(_) => {
-                    return tool_error(
-                        id,
-                        format!(
-                            "{}: due_at {}",
-                            t(lang, "参数错误", "Invalid argument"),
-                            t(lang, "必须是字符串或 null", "must be a string or null")
-                        ),
-                    )
-                }
+                Some(_) => return tool_error(id, tr(lang, "arg-error-due")),
             }
             match db::update_task(conn, user_id, tid, &patch) {
                 Ok(Some(task)) => tool_result(id, json!(task).to_string()),
-                Ok(None) => tool_error(id, e("任务不存在", "Task not found").into()),
+                Ok(None) => tool_error(id, e("task-not-found")),
                 Err(err) => db_err(err),
             }
         }
@@ -678,16 +517,7 @@ pub(super) fn call_tool(
             }
             let done = match args.get("done") {
                 Some(Value::Bool(b)) => *b,
-                _ => {
-                    return tool_error(
-                        id,
-                        format!(
-                            "{}: done {}",
-                            t(lang, "参数错误", "Invalid argument"),
-                            t(lang, "必填且必须是布尔值", "is required and must be a boolean")
-                        ),
-                    )
-                }
+                _ => return tool_error(id, tr(lang, "arg-error-done")),
             };
             let patch = db::TaskUpdate {
                 status: Some(if done { "done" } else { "pending" }.to_string()),
@@ -695,7 +525,7 @@ pub(super) fn call_tool(
             };
             match db::update_task(conn, user_id, tid, &patch) {
                 Ok(Some(task)) => tool_result(id, json!(task).to_string()),
-                Ok(None) => tool_error(id, e("任务不存在", "Task not found").into()),
+                Ok(None) => tool_error(id, e("task-not-found")),
                 Err(err) => db_err(err),
             }
         }
@@ -710,10 +540,7 @@ pub(super) fn call_tool(
             }
             match db::archive_task(conn, user_id, tid) {
                 Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
-                Ok(false) => tool_error(
-                    id,
-                    e("任务不存在或已归档", "Task not found or already archived").into(),
-                ),
+                Ok(false) => tool_error(id, e("task-not-found-or-archived")),
                 Err(err) => db_err(err),
             }
         }
@@ -728,7 +555,7 @@ pub(super) fn call_tool(
             }
             match db::unarchive_task(conn, user_id, tid) {
                 Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
-                Ok(false) => tool_error(id, e("任务不在归档中", "Task is not in the archive").into()),
+                Ok(false) => tool_error(id, e("task-not-archived")),
                 Err(err) => db_err(err),
             }
         }
@@ -743,7 +570,7 @@ pub(super) fn call_tool(
             }
             match db::delete_task(conn, user_id, tid) {
                 Ok(true) => tool_result(id, json!({ "ok": true }).to_string()),
-                Ok(false) => tool_error(id, e("任务不存在", "Task not found").into()),
+                Ok(false) => tool_error(id, e("task-not-found")),
                 Err(err) => db_err(err),
             }
         }
@@ -759,16 +586,13 @@ pub(super) fn call_tool(
                 Some(Err(err)) => {
                     return tool_error(
                         id,
-                        match lang {
-                            Lang::Zh => format!("参数错误: doc 必须是任务清单文档 JSON: {err}"),
-                            Lang::En => format!("Invalid argument: doc must be a task list document JSON: {err}"),
-                        },
+                        tr_a(lang, "import-doc-invalid", &[("err", &err.to_string())]),
                     )
                 }
-                None => return tool_error(id, arg_req_err("doc", lang)),
+                None => return tool_error(id, tr_a(lang, "arg-error-required", &[("key", "doc")])),
             };
             if doc.groups.is_empty() {
-                return tool_error(id, e("导入内容为空", "Import content is empty").into());
+                return tool_error(id, e("import-empty"));
             }
             // 文档包含已锁定清单时整体拒绝（用户可在界面导入或先解锁）
             let locked_names = match db::locked_group_names(conn, user_id) {
@@ -783,19 +607,7 @@ pub(super) fn call_tool(
                 .map(String::from)
                 .collect();
             if !conflicts.is_empty() {
-                return tool_error(
-                    id,
-                    match lang {
-                        Lang::Zh => format!(
-                            "文档包含已锁定的清单：{}（请让用户在界面导入或先解锁）",
-                            conflicts.join("、")
-                        ),
-                        Lang::En => format!(
-                            "The document contains locked lists: {} (ask the user to import from the UI or unlock them first)",
-                            conflicts.join(", ")
-                        ),
-                    },
-                );
+                return tool_error(id, lang.import_locked(&conflicts));
             }
             match db::import_doc(conn, user_id, &doc) {
                 Ok(r) => tool_result(id, json!(r).to_string()),
@@ -810,11 +622,7 @@ pub(super) fn call_tool(
                 None => {
                     return tool_error(
                         id,
-                        format!(
-                            "{}: old_password {}",
-                            t(lang, "参数错误", "Invalid argument"),
-                            t(lang, "必填且必须是字符串", "is required and must be a string")
-                        ),
+                        tr_a(lang, "arg-error-required-string", &[("key", "old_password")]),
                     )
                 }
             };
@@ -823,23 +631,12 @@ pub(super) fn call_tool(
                 None => {
                     return tool_error(
                         id,
-                        format!(
-                            "{}: new_password {}",
-                            t(lang, "参数错误", "Invalid argument"),
-                            t(lang, "必填且必须是字符串", "is required and must be a string")
-                        ),
+                        tr_a(lang, "arg-error-required-string", &[("key", "new_password")]),
                     )
                 }
             };
             if new.len() < 4 {
-                return tool_error(
-                    id,
-                    format!(
-                        "{}: new_password {}",
-                        t(lang, "参数错误", "Invalid argument"),
-                        t(lang, "至少 4 位", "must be at least 4 characters")
-                    ),
-                );
+                return tool_error(id, tr(lang, "arg-error-new-password-short"));
             }
             match db::change_user_password(conn, user_id, &old, &new) {
                 Ok(true) => {
@@ -848,18 +645,10 @@ pub(super) fn call_tool(
                     let _ = db::delete_user_sessions(conn, user_id, None);
                     tool_result(
                         id,
-                        json!({
-                            "ok": true,
-                            "note": t(
-                                lang,
-                                "密码已修改；请同步更新 MCP 客户端配置中的 TODO4AGENT_PASSWORD（当前连接不受影响，下次启动需用新密码）",
-                                "Password changed; update TODO4AGENT_PASSWORD in the MCP client config accordingly (the current connection is unaffected; the next launch needs the new password)"
-                            )
-                        })
-                        .to_string(),
+                        json!({ "ok": true, "note": tr(lang, "password-changed-note") }).to_string(),
                     )
                 }
-                Ok(false) => tool_error(id, e("原密码错误", "Current password is incorrect").into()),
+                Ok(false) => tool_error(id, e("wrong-password")),
                 Err(err) => db_err(err),
             }
         }
@@ -882,11 +671,7 @@ pub(super) fn call_tool(
                 None => {
                     return tool_error(
                         id,
-                        format!(
-                            "{}: content {}",
-                            t(lang, "参数错误", "Invalid argument"),
-                            t(lang, "必填且必须是字符串", "is required and must be a string")
-                        ),
+                        tr_a(lang, "arg-error-required-string", &[("key", "content")]),
                     )
                 }
             };
@@ -899,10 +684,7 @@ pub(super) fn call_tool(
             }
         }
 
-        _ => tool_error(
-            id,
-            format!("{}: {name}", t(lang, "未知工具", "Unknown tool")),
-        ),
+        _ => tool_error(id, tr_a(lang, "unknown-tool", &[("name", name)])),
     }
 }
 
@@ -931,14 +713,14 @@ mod tests {
 
     #[test]
     fn tool_descriptions_follow_language() {
-        let zh = tools(Lang::Zh);
-        assert!(zh.iter().any(|t| t.description.contains("列出所有任务分组")));
-        let en = tools(Lang::En);
-        assert!(en.iter().any(|t| t.description.contains("List all task groups")));
+        let zh: Vec<String> = tools(Lang::Zh).iter().map(|t| t.description.clone()).collect();
+        assert!(zh.iter().any(|d| d.contains("列出所有任务分组")));
+        let en: Vec<String> = tools(Lang::En).iter().map(|t| t.description.clone()).collect();
+        assert!(en.iter().any(|d| d.contains("List all task groups")));
         // 名称（协议契约）不随语言变化
         assert_eq!(
-            zh.iter().map(|t| t.name).collect::<Vec<_>>(),
-            en.iter().map(|t| t.name).collect::<Vec<_>>(),
+            tools(Lang::Zh).iter().map(|t| t.name).collect::<Vec<_>>(),
+            tools(Lang::En).iter().map(|t| t.name).collect::<Vec<_>>(),
         );
     }
 }

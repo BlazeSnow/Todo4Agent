@@ -23,7 +23,7 @@ use std::{
 use tower::Service;
 
 use crate::db;
-use crate::lang::{t, Lang};
+use crate::lang::{tr, Lang};
 
 pub struct AppState {
     pub db: Mutex<Connection>,
@@ -46,15 +46,10 @@ pub(crate) fn err(code: StatusCode, msg: &str) -> ApiResult {
     (code, Json(json!({ "error": msg })))
 }
 
-/// 以该语言返回错误响应（中英对照取值）
-pub(crate) fn err_l(lang: Lang, code: StatusCode, zh: &'static str, en: &'static str) -> ApiResult {
-    err(code, t(lang, zh, en))
-}
-
 pub(crate) fn internal(lang: Lang, e: rusqlite::Error) -> ApiResult {
     err(
         StatusCode::INTERNAL_SERVER_ERROR,
-        &format!("{}: {e}", t(lang, "数据库错误", "Database error")),
+        &crate::lang::tr_a(lang, "db-error", &[("err", &e.to_string())]),
     )
 }
 
@@ -109,8 +104,7 @@ async fn require_auth(State(st): State<SharedState>, mut req: Request, next: Nex
         let lang = Lang::from_accept_language(
             req.headers().get(header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()),
         );
-        err_l(lang, StatusCode::UNAUTHORIZED, "未登录或登录已失效", "Not signed in or session expired")
-            .into_response()
+        err(StatusCode::UNAUTHORIZED, &tr(lang, "not-signed-in")).into_response()
     };
     // 会话直接查库：与桌面 / mcp 进程共享同一数据库，签发与吊销实时一致
     let uid = bearer_token(req.headers()).and_then(|t| {
