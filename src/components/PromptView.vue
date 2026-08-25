@@ -134,7 +134,7 @@ function formatTime(iso: string | null): string {
 
 <style scoped>
 .prompt-editor :deep(textarea) {
-  font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+  font-family: 'Monaspace Neon', 'JetBrains Mono', Consolas, 'Courier New', monospace;
   font-size: 13px;
   line-height: 1.7;
 }

@@ -183,7 +183,12 @@ async function copyConfig() {
   overflow-x: auto;
   font-size: 13px;
   line-height: 1.6;
-  font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+}
+
+/* 代码字体：Shiki 高亮块（.shiki code）与高亮不可用时的纯文本回退（pre.code-block） */
+.shiki code,
+pre.code-block {
+  font-family: 'Monaspace Neon', 'JetBrains Mono', Consolas, 'Courier New', monospace;
 }
 
 /* 高亮不可用时的纯文本回退：深色主题用近黑面板色，浅色沿用 surface-variant */

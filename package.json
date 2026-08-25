@@ -20,6 +20,7 @@
     "mcp": "cargo run --manifest-path src-tauri/Cargo.toml -- mcp"
   },
   "dependencies": {
+    "@fontsource/monaspace-neon": "^5.3.0",
     "@mdi/font": "^7.4.47",
     "shiki": "^4.4.3",
     "vue": "^3.5.41",

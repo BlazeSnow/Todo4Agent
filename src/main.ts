@@ -2,6 +2,8 @@ import { createApp } from 'vue'
 import { createVuetify } from 'vuetify'
 import 'vuetify/styles'
 import '@mdi/font/css/materialdesignicons.css'
+// 代码块统一字体（Agent 接入页配置示例、提示词编辑器）
+import '@fontsource/monaspace-neon/400.css'
 import App from './App.vue'
 import { i18n, locale, vuetifyLocaleOf } from './i18n'
 
