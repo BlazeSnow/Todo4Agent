@@ -9,6 +9,8 @@
 
 ### 🚀 改进
 
+- 🎨 卡片样式调整为 Vuetify 默认（elevated）投影样式：登录卡片、「Agent 接入」页与设置页共 8 处 v-card 由描边（outlined）改为投影卡片；「Agent 接入」页的命令标签（v-chip）样式保留
+- ✏️ 代码块统一更换 Monaspace Neon 字体：「Agent 接入」页配置示例（含高亮不可用时的纯文本回退）与「提示词」页编辑器共用同一字体栈；字体文件（woff2）随应用打包，离线可用
 - ⬆️ 前端依赖升级：Vuetify 3 → 4、Vite 6 → 8、TypeScript 5 → 6、vue-tsc 2 → 3、@vitejs/plugin-vue 5 → 6，并同步 package.json 版本声明与实际安装一致（重建 lockfile 不再回退大版本）；后端新增 fluent-i18n 依赖（Rust MSRV 提升至 1.85.1）
 
 ### 🐛 修复
