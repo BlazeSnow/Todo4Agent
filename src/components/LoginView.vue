@@ -64,7 +64,7 @@ async function doRegister() {
 
 <template>
   <div class="login-wrap">
-    <v-card class="login-card" variant="outlined">
+    <v-card class="login-card">
       <v-card-title class="text-center pt-6 pb-2">
         <v-icon icon="mdi-checkbox-marked-circle-outline" class="mr-1" color="primary" />
         Todo4Agent

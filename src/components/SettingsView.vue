@@ -201,7 +201,7 @@ async function changePassword() {
     <h2 class="text-h6 mb-1">{{ t('settings.title') }}</h2>
     <p class="text-body-2 text-medium-emphasis mb-4">{{ t('settings.subtitle') }}</p>
 
-    <v-card variant="outlined" class="mb-4">
+    <v-card class="mb-4">
       <v-card-title>{{ t('settings.service') }}</v-card-title>
       <v-card-text>
         <v-switch
@@ -238,7 +238,7 @@ async function changePassword() {
       </v-card-text>
     </v-card>
 
-    <v-card variant="outlined" class="mb-4">
+    <v-card class="mb-4">
       <v-card-title>{{ t('settings.user') }}</v-card-title>
       <v-card-text>
         <v-switch
@@ -299,7 +299,7 @@ async function changePassword() {
       </v-card-text>
     </v-card>
 
-    <v-card variant="outlined" class="mb-4">
+    <v-card class="mb-4">
       <v-card-title>{{ t('settings.data') }}</v-card-title>
       <v-card-text>
         <div v-if="dbPath" class="d-flex align-center ga-3 mb-4">
@@ -339,7 +339,7 @@ async function changePassword() {
       </v-card-text>
     </v-card>
 
-    <v-card variant="outlined">
+    <v-card>
       <v-card-title>{{ t('settings.about') }}</v-card-title>
       <v-card-text>
         <v-list density="compact">

@@ -101,7 +101,7 @@ async function copyConfig() {
     <h2 class="text-h6 mb-1">{{ t('mcp.title') }}</h2>
     <p class="text-body-2 text-medium-emphasis mb-4">{{ t('mcp.subtitle') }}</p>
 
-    <v-card variant="outlined" class="mb-4">
+    <v-card class="mb-4">
       <v-card-text>
         <p class="mb-3">{{ t('mcp.intro1') }}</p>
         <p class="mb-3">{{ t('mcp.intro2') }}</p>
@@ -117,7 +117,7 @@ async function copyConfig() {
       </v-card-text>
     </v-card>
 
-    <v-card variant="outlined" class="mb-4">
+    <v-card class="mb-4">
       <v-card-title class="d-flex align-center justify-space-between gap-2">
         <span>{{ t('mcp.configTitle') }}</span>
         <v-btn
@@ -137,7 +137,7 @@ async function copyConfig() {
       </v-card-text>
     </v-card>
 
-    <v-card variant="outlined">
+    <v-card>
       <v-card-title>{{ t('mcp.tools') }}</v-card-title>
       <v-card-text>
         <v-list density="compact">
