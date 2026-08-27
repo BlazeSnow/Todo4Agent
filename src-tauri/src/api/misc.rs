@@ -128,3 +128,22 @@ pub async fn update_settings(
         "allow_register": db::get_allow_register(&c).unwrap_or(true)
     }))
 }
+
+// ---------- 应用重启 ----------
+
+/// 重启整个应用。先回复本请求，再延迟触发，确保响应送达前端后进程才退出：
+/// - 桌面模式：交给 Tauri 事件循环整体重启（主窗口随新进程重建）
+/// - serve 模式：优雅停机 HTTP 服务，由 serve_blocking 在停机后重新拉起进程
+pub async fn restart_app(State(st): State<SharedState>) -> ApiResult {
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        match &st.app_handle {
+            Some(app) => app.request_restart(),
+            None => {
+                st.respawn.store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = st.shutdown.send(true);
+            }
+        }
+    });
+    ok_json(json!({ "restarting": true }))
+}

@@ -170,7 +170,7 @@ fn run_desktop(port_override: Option<u16>) {
         }))
         .setup(move |app| {
             // 能走到这里的一定是首个实例：先启动 HTTP 服务，再按实际端口创建窗口
-            let port = api::spawn_server(port_override);
+            let port = api::spawn_server(port_override, app.handle().clone());
             let url = if dev {
                 "http://localhost:3001".to_string()
             } else {

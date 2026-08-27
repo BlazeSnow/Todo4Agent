@@ -17,9 +17,13 @@ use serde_json::{json, Value};
 use std::{
     convert::Infallible,
     future::{ready, Ready},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     task::{Context, Poll},
 };
+use tokio::sync::watch;
 use tower::Service;
 
 use crate::db;
@@ -29,6 +33,12 @@ pub struct AppState {
     pub db: Mutex<Connection>,
     /// 实际监听的端口（供设置页展示）
     pub effective_port: u16,
+    /// 桌面模式持有 Tauri 句柄：重启接口走 request_restart 整体重启（窗口随之重建）
+    pub app_handle: Option<tauri::AppHandle>,
+    /// 优雅停机信号（serve 模式重启接口触发，排空在途请求并释放端口）
+    pub shutdown: watch::Sender<bool>,
+    /// serve 模式重启标记：停机完成后由 serve_blocking 重新拉起进程
+    pub respawn: Arc<AtomicBool>,
 }
 pub type SharedState = Arc<AppState>;
 
@@ -142,6 +152,7 @@ fn api_router(state: SharedState) -> Router {
         .route("/import", post(import_json))
         .route("/settings", get(get_settings).patch(update_settings))
         .route("/settings/db-location", post(open_db_location))
+        .route("/app/restart", post(restart_app))
         .route("/prompt", get(get_prompt).put(put_prompt))
         .route("/auth/status", get(auth_status))
         .route("/auth/login", post(auth_login))
@@ -228,19 +239,39 @@ pub fn serve_blocking(port_override: Option<u16>) {
         } else {
             println!("Todo4Agent WebUI: http://127.0.0.1:{port} （仅本机可访问）");
         }
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
         let state = Arc::new(AppState {
             db: Mutex::new(conn),
             effective_port: port,
+            app_handle: None,
+            shutdown: shutdown_tx,
+            respawn: Arc::new(AtomicBool::new(false)),
         });
-        if let Err(e) = axum::serve(listener, app(state)).await {
+        // 优雅停机：重启接口触发后排空在途请求、释放端口，再由下方重新拉起
+        let serve = axum::serve(listener, app(state.clone()))
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.changed().await;
+            });
+        if let Err(e) = serve.await {
             eprintln!("HTTP 服务错误: {e}");
+        }
+        // serve 模式重启：停机完成后重新拉起自身（沿用原命令行参数），随后退出旧进程
+        if state.respawn.load(Ordering::SeqCst) {
+            let exe = std::env::current_exe().expect("定位当前可执行文件失败");
+            let args: Vec<String> = std::env::args().skip(1).collect();
+            match std::process::Command::new(exe).args(&args).spawn() {
+                Ok(_) => println!("Todo4Agent 正在重启: todo4agent {}", args.join(" ")),
+                Err(e) => eprintln!("重启失败（重新拉起进程出错），进程即将退出: {e}"),
+            }
+            std::process::exit(0);
         }
     });
 }
 
 /// 在后台线程运行 HTTP 服务，返回实际端口（tauri 桌面模式使用）。
-/// port_override：命令行 --port 指定的端口，本次运行优先于设置页保存的端口
-pub fn spawn_server(port_override: Option<u16>) -> u16 {
+/// port_override：命令行 --port 指定的端口，本次运行优先于设置页保存的端口；
+/// app_handle：桌面句柄，供重启接口触发整体重启
+pub fn spawn_server(port_override: Option<u16>, app_handle: tauri::AppHandle) -> u16 {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("创建 tokio runtime 失败");
@@ -256,9 +287,14 @@ pub fn spawn_server(port_override: Option<u16>) -> u16 {
                 println!("Todo4Agent WebUI: http://127.0.0.1:{port} （仅本机可访问）");
             }
             let _ = tx.send(port);
+            // 桌面模式重启由 request_restart 直接退出进程，无需优雅停机通道
+            let (shutdown, _shutdown_rx) = watch::channel(false);
             let state = Arc::new(AppState {
                 db: Mutex::new(conn),
                 effective_port: port,
+                app_handle: Some(app_handle),
+                shutdown,
+                respawn: Arc::new(AtomicBool::new(false)),
             });
             if let Err(e) = axum::serve(listener, app(state)).await {
                 eprintln!("HTTP 服务错误: {e}");
