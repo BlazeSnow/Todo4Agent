@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { Group, Task } from '../types'
 import { NO_GROUP_NAME } from '../types'
 import { dateLocale } from '../i18n'
+import ArchiveTaskCard from './ArchiveTaskCard.vue'
 import InfoTip from './InfoTip.vue'
 
 const props = defineProps<{
@@ -49,12 +50,6 @@ function dayLabel(d: Date): string {
   return d.toLocaleDateString(dateLocale.value, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
 }
 
-function timeOf(iso: string): string {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return iso
-  return d.toLocaleTimeString(dateLocale.value, { hour: '2-digit', minute: '2-digit' })
-}
-
 function groupNameOf(groupId: number): string {
   const g = props.activeGroups.find((x) => x.id === groupId)
   if (!g) return t('groups.groupDeleted')
@@ -81,113 +76,27 @@ function groupNameOf(groupId: number): string {
       :text="t('archive.emptyHint')"
     />
 
-    <!-- 按归档日期分组的时间线：每天一个日期标题，组内任务沿时间线排列 -->
-    <div v-for="day in byDay" :key="day.key" class="mb-6">
-      <div class="text-subtitle-2 text-medium-emphasis mb-3">{{ day.label }}</div>
-      <v-timeline density="compact" side="end" line-inset="8">
-        <v-timeline-item
+    <!-- 按归档日期分组：日期标题 + 紧凑扁平卡片列表（无时间线，窄屏省空间） -->
+    <div v-for="day in byDay" :key="day.key" class="mb-5">
+      <div class="text-subtitle-2 text-medium-emphasis mb-2">{{ day.label }}</div>
+      <div class="archive-list">
+        <ArchiveTaskCard
           v-for="task in day.items"
           :key="task.id"
-          size="x-small"
-          :dot-color="task.status === 'done' ? 'primary' : 'grey'"
-          :icon="task.status === 'done' ? 'mdi-check' : undefined"
-        >
-          <!-- 无界扁平条目：无卡片边框/底色，标题、分组、时间单行排布 -->
-          <div class="archive-row">
-            <span class="archive-title" :class="{ struck: task.status === 'done' }">
-              {{ task.title }}
-            </span>
-            <span class="archive-group">
-              <i class="mdi mdi-folder-outline"></i>
-              {{ groupNameOf(task.group_id) }}
-            </span>
-            <span class="archive-time">{{ timeOf(task.archived_at!) }}</span>
-            <v-menu location="bottom right">
-              <template #activator="{ props }">
-                <v-btn
-                  v-bind="props"
-                  icon="mdi-dots-horizontal"
-                  size="small"
-                  variant="text"
-                  :aria-label="t('common.moreActions', { name: task.title })"
-                />
-              </template>
-              <v-list density="compact">
-                <v-list-item
-                  prepend-icon="mdi-archive-arrow-up-outline"
-                  :title="t('archive.unarchive')"
-                  :subtitle="t('archive.unarchiveSubtitle')"
-                  @click="$emit('restore', task)"
-                />
-                <v-list-item
-                  prepend-icon="mdi-delete"
-                  :title="t('archive.moveToTrash')"
-                  color="error"
-                  @click="$emit('remove', task)"
-                />
-              </v-list>
-            </v-menu>
-            <div v-if="task.description" class="archive-desc">{{ task.description }}</div>
-          </div>
-        </v-timeline-item>
-      </v-timeline>
+          :task="task"
+          :group-name="groupNameOf(task.group_id)"
+          @restore="$emit('restore', $event)"
+          @remove="$emit('remove', $event)"
+        />
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Vuetify 竖向 side-end 时间线的 body 列为 auto 且 justify-self:flex-start，
-   条目会收缩到内容宽度；列改为 1fr、条目 stretch 让其占满右侧全部宽度。
-   Vuetify 对奇数项还有一条含 :nth-child 与两个 :not 的 7 级 class 规则
-   强制 flex-start，逐级拼选择器不可维护，用 !important 压制 */
-.v-timeline--vertical.v-timeline--density-compact.v-timeline--side-end {
-  grid-template-columns: 0 min-content 1fr;
-}
-:deep(.v-timeline-item__body) {
-  justify-self: stretch !important;
-  padding-inline-start: 12px !important;
-}
-
-/* 无界扁平条目：单行（标题 + 分组 + 时间 + 操作），有描述时另起一行 */
-.archive-row {
+.archive-list {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 12px;
-  padding: 4px 0;
-}
-.archive-title {
-  flex: 1 1 auto;
-  min-width: 160px;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.4;
-  word-break: break-word;
-}
-.archive-title.struck {
-  text-decoration: line-through;
-  color: rgba(var(--v-theme-on-surface), 0.45);
-}
-.archive-group,
-.archive-time {
-  flex-shrink: 0;
-  font-size: 12px;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-}
-.archive-group {
-  display: inline-flex;
-  align-items: center;
+  flex-direction: column;
   gap: 4px;
-}
-.archive-group .mdi {
-  font-size: 13px;
-}
-.archive-desc {
-  flex-basis: 100%;
-  font-size: 12px;
-  line-height: 1.5;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 </style>
