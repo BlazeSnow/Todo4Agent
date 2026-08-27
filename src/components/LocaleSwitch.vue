@@ -26,7 +26,8 @@ function pick(l: AppLocale) {
         prepend-icon="mdi-translate"
         :aria-label="t('common.language')"
       >
-        {{ LOCALE_NAMES[current] }}
+        <!-- 小屏（手机）仅显示图标，≥sm 断点恢复文字 -->
+        <span class="d-none d-sm-inline">{{ LOCALE_NAMES[current] }}</span>
       </v-btn>
     </template>
     <v-list density="compact">

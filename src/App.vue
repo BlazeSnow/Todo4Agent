@@ -518,7 +518,15 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
         </span>
       </v-app-bar-title>
       <LocaleSwitch />
-      <v-btn variant="text" prepend-icon="mdi-refresh" @click="refresh">{{ t('common.refresh') }}</v-btn>
+      <!-- 小屏（手机）仅显示图标，≥sm 断点恢复文字 -->
+      <v-btn
+        variant="text"
+        prepend-icon="mdi-refresh"
+        :aria-label="t('common.refresh')"
+        @click="refresh"
+      >
+        <span class="d-none d-sm-inline">{{ t('common.refresh') }}</span>
+      </v-btn>
     </v-app-bar>
 
     <v-navigation-drawer
