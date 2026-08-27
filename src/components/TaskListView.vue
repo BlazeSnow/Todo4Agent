@@ -175,8 +175,16 @@ function overdue(task: Task): boolean {
       <div class="header-actions">
         <v-menu>
           <template #activator="{ props }">
-            <v-btn v-bind="props" variant="text" prepend-icon="mdi-sort-variant">
-              {{ t('taskList.sort', { mode: sortModeLabel }) }}
+            <!-- 小屏（手机）仅显示图标，≥sm 断点恢复文字 -->
+            <v-btn
+              v-bind="props"
+              variant="text"
+              prepend-icon="mdi-sort-variant"
+              :aria-label="t('taskList.sort', { mode: sortModeLabel })"
+            >
+              <span class="d-none d-sm-inline">
+                {{ t('taskList.sort', { mode: sortModeLabel }) }}
+              </span>
             </v-btn>
           </template>
           <v-list density="compact">
@@ -189,8 +197,8 @@ function overdue(task: Task): boolean {
             />
           </v-list>
         </v-menu>
-        <v-btn color="primary" prepend-icon="mdi-plus" @click="$emit('create')">
-          {{ t('taskList.newTask') }}
+        <v-btn color="primary" prepend-icon="mdi-plus" :aria-label="t('taskList.newTask')" @click="$emit('create')">
+          <span class="d-none d-sm-inline">{{ t('taskList.newTask') }}</span>
         </v-btn>
       </div>
     </div>
