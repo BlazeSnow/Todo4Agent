@@ -284,7 +284,7 @@ pub(super) fn call_tool(
             json!({
                 "name": "todo4agent",
                 "version": env!("CARGO_PKG_VERSION"),
-                "release_url": "https://github.com/BlazeSnow/Todo4Agent/releases"
+                "release_url": "https://github.com/Todo4Agent/Todo4Agent/releases"
             })
             .to_string(),
         ),

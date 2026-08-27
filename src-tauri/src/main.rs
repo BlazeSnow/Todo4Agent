@@ -154,7 +154,7 @@ MCP 接入（客户端配置示例，ZCode / Claude Desktop 通用格式）:
         "数据:\n  任务数据保存在本地 SQLite，当前路径:\n    {}\n  可用环境变量 TODO4AGENT_DB 指定其他位置。",
         db::db_path().display()
     );
-    println!("\n文档: https://github.com/BlazeSnow/Todo4Agent");
+    println!("\n文档: https://github.com/Todo4Agent/Todo4Agent");
 }
 
 fn run_desktop(port_override: Option<u16>) {

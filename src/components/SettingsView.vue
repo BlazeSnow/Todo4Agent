@@ -409,7 +409,7 @@ async function changePassword() {
           </v-list-item>
           <v-list-item :title="t('settings.repo')">
             <template #append>
-              <span class="text-medium-emphasis">github.com/BlazeSnow/Todo4Agent</span>
+              <span class="text-medium-emphasis">github.com/Todo4Agent/Todo4Agent</span>
             </template>
           </v-list-item>
         </v-list>

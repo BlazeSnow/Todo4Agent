@@ -17,7 +17,7 @@
 
 ## 安装
 
-在 [GitHub Releases](https://github.com/BlazeSnow/Todo4Agent/releases) 下载对应平台的安装包即可。
+在 [GitHub Releases](https://github.com/Todo4Agent/Todo4Agent/releases) 下载对应平台的安装包即可。
 服务端口与对外监听可在「设置 → 服务」中修改（默认 3000 / 监听 0.0.0.0）。
 
 ## 命令行

@@ -67,7 +67,7 @@ jobs:
       with:
         tagName: ${{ github.ref_name }}
         releaseName: Todo4Agent ${{ github.ref_name }}
-        releaseBody: 完整更新日志见 [CHANGELOG.md](https://github.com/BlazeSnow/Todo4Agent/blob/main/CHANGELOG.md)
+        releaseBody: 完整更新日志见 [CHANGELOG.md](https://github.com/Todo4Agent/Todo4Agent/blob/main/CHANGELOG.md)
         prerelease: ${{ contains(github.ref_name, '-beta') }}
         uploadUpdaterJson: false
         args: ${{ matrix.args }}
