@@ -41,6 +41,7 @@ import {
   updateTask,
 } from './api'
 import type { Group, Task, TaskInput } from './types'
+import type PromptViewType from './components/PromptView.vue'
 
 const { t } = useI18n()
 
@@ -235,11 +236,15 @@ async function loadTasks() {
 watch(selectedGroupId, loadTasks)
 
 /** 手动刷新：重载分组与当前视图数据（MCP 等外部修改后同步界面） */
+const promptView = ref<InstanceType<typeof PromptViewType> | null>(null)
+
 async function refresh() {
   await loadGroups()
   if (selectedGroupId.value != null) await loadTasks()
   if (currentView.value === 'archive') await loadArchive()
   if (currentView.value === 'trash') await loadTrash()
+  // 提示词可被 Agent 经 MCP 修改，刷新时一并重载（覆盖本地未保存编辑）
+  if (currentView.value === 'prompt') await promptView.value?.reload()
 }
 
 const authReady = computed(() => authState.value !== 'loading')
@@ -660,7 +665,7 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           @empty="onEmptyTrash"
         />
         <MCPView v-else-if="currentView === 'mcp'" :current-user="currentUser" @notify="notify" />
-        <PromptView v-else @notify="notify" @error="notify" />
+        <PromptView v-else ref="promptView" @notify="notify" @error="notify" />
       </v-container>
     </v-main>
 

@@ -141,25 +141,31 @@ function formatTime(iso: string | null): string {
 }
 
 onMounted(async () => {
+  await reload()
+  await nextTickSafe()
+  try {
+    await initEditor(content.value)
+  } catch {
+    editorFailed.value = true
+  }
+})
+
+/** 重新加载提示词（顶栏刷新按钮调用；以服务端内容覆盖本地未保存的编辑） */
+async function reload() {
   loading.value = true
   try {
     const p = await getPrompt()
     content.value = p.content
     isDefault.value = p.is_default
     updatedAt.value = p.updated_at
-    await nextTickSafe()
-    try {
-      await initEditor(content.value)
-    } catch {
-      editorFailed.value = true
-    }
   } catch (e) {
     emit('error', (e as Error).message)
-    editorFailed.value = true
   } finally {
     loading.value = false
   }
-})
+}
+
+defineExpose({ reload })
 
 /** 等一帧：编辑器挂载点需已在 DOM 中 */
 async function nextTickSafe() {
