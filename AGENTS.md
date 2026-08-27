@@ -3,7 +3,7 @@
 1. 禁止修改本文件
 2. 开发过程中需要处理终端GBK与UTF-8的关系
 3. 本软件是为Agent设计的MCP任务清单
-4. 未经允许禁止修改CHANGELOG.md
+4. 更新完一项功能后，修改CHANGELOG.md和DEVELOPMENT.md
 
 ## 软件架构
 
