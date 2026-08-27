@@ -6,6 +6,8 @@ const props = defineProps<{
   message: string
   title?: string
   confirmText?: string
+  /** 确认按钮颜色（默认 error，用于删除类操作） */
+  color?: string
 }>()
 
 const emit = defineEmits<{
@@ -33,7 +35,7 @@ function confirm() {
       <v-card-actions>
         <v-spacer />
         <v-btn text @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</v-btn>
-        <v-btn color="error" @click="confirm">{{ confirmText ?? t('common.delete') }}</v-btn>
+        <v-btn :color="color ?? 'error'" @click="confirm">{{ confirmText ?? t('common.delete') }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

@@ -245,6 +245,11 @@ export function openDbLocation(): Promise<{ ok: boolean; path: string }> {
   return request<{ ok: boolean; path: string }>('/settings/db-location', { method: 'POST' })
 }
 
+/** 重启应用：桌面模式整体重启（窗口重建），serve 模式停机后自动拉起 */
+export function restartApp(): Promise<{ restarting: boolean }> {
+  return request<{ restarting: boolean }>('/app/restart', { method: 'POST' })
+}
+
 /** 导出 JSON 并触发浏览器下载 */
 export function downloadExport(doc: ExportDoc): void {
   const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' })

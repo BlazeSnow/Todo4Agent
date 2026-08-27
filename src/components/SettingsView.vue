@@ -8,10 +8,12 @@ import {
   getSettings,
   importDoc,
   openDbLocation,
+  restartApp,
   updateSettings,
 } from '../api'
 import type { ExportDoc } from '../types'
 import packageJson from '../../package.json'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const props = defineProps<{
   /** 当前登录用户名 */
@@ -155,6 +157,35 @@ async function savePort() {
   }
 }
 
+// ---------- 应用重启 ----------
+
+const restartConfirm = ref(false)
+const restarting = ref(false)
+
+/** 触发应用重启，轮询等待服务恢复后自动刷新页面（桌面模式窗口随新进程重建） */
+async function doRestart() {
+  restarting.value = true
+  try {
+    await restartApp()
+  } catch {
+    // 进程退出导致的连接中断属预期，继续等待服务恢复
+  }
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 1000))
+    try {
+      const res = await fetch('/api/auth/status', { cache: 'no-store' })
+      if (res.ok) {
+        location.reload()
+        return
+      }
+    } catch {
+      // 服务尚未恢复，继续轮询
+    }
+  }
+  restarting.value = false
+  emit('error', t('settings.restartTimeout'))
+}
+
 // ---------- 数据库文件 ----------
 
 const dbPath = ref('')
@@ -233,6 +264,26 @@ async function changePassword() {
           </v-btn>
           <span class="text-caption text-medium-emphasis ml-3">
             {{ t('settings.restartHint') }}
+          </span>
+        </div>
+      </v-card-text>
+    </v-card>
+
+    <v-card class="mb-4">
+      <v-card-title>{{ t('settings.restartApp') }}</v-card-title>
+      <v-card-text>
+        <p class="text-body-2 text-medium-emphasis mb-4">{{ t('settings.restartAppHint') }}</p>
+        <div class="d-flex align-center ga-3">
+          <v-btn
+            color="primary"
+            prepend-icon="mdi-restart"
+            :loading="restarting"
+            @click="restartConfirm = true"
+          >
+            {{ t('settings.restartNow') }}
+          </v-btn>
+          <span v-if="restarting" class="text-caption text-medium-emphasis">
+            {{ t('settings.restarting') }}
           </span>
         </div>
       </v-card-text>
@@ -361,6 +412,15 @@ async function changePassword() {
         </v-list>
       </v-card-text>
     </v-card>
+
+    <ConfirmDialog
+      v-model="restartConfirm"
+      :title="t('settings.restartApp')"
+      :message="t('settings.restartConfirm')"
+      color="primary"
+      :confirm-text="t('common.confirm')"
+      @confirm="doRestart"
+    />
   </div>
 </template>
 

@@ -4,6 +4,7 @@ export default {
     save: 'Save',
     cancel: 'Cancel',
     delete: 'Delete',
+    confirm: 'Confirm',
     edit: 'Edit',
     refresh: 'Refresh',
     moveUp: 'Move up',
@@ -181,6 +182,14 @@ export default {
     portRange: 'Port range: 1024-65535',
     restartHint: 'Restart the app to apply changes',
     portSaved: 'Port saved; restart the app to apply',
+    restartApp: 'Restart App',
+    restartAppHint:
+      'A restart applies pending settings such as the listen port and LAN access. The service is briefly unavailable; in desktop mode the window is recreated automatically.',
+    restartNow: 'Restart Now',
+    restartConfirm: 'Restart the app now? No data is lost, but the service will be briefly unavailable.',
+    restarting: 'Restarting; the page refreshes automatically once the service is back…',
+    restartTimeout:
+      'Timed out waiting for the service; if you changed the listen port, open the new address instead.',
     user: 'User',
     allowRegister: 'Allow registering new accounts',
     allowRegisterHint: 'When off, the register entry disappears from the sign-in page; takes effect immediately',
