@@ -12,6 +12,7 @@
 | 前端    | Vue 3 + Vite   | 桌面与 WebUI 共用同一套前端                    |
 | UI 组件 | Vuetify        | 主题跟随系统深浅色（`defaultTheme: 'system'`） |
 | 多语言  | vue-i18n（前端）/ fluent-i18n（后端） | 简体中文 / English，缺失翻译回落中文 |
+| 编辑器  | CodeMirror 6   | 提示词页 Markdown 编辑器（动态加载，不增大首屏） |
 | 数据库  | SQLite（本地） | rusqlite 直接访问（bundled，无需单独安装）     |
 | 协议    | MCP（stdio）   | 供 Agent 连接操作任务清单，环境变量凭据认证    |
 
@@ -223,7 +224,7 @@ CREATE TABLE prompts (
   移入该组、改名/删除该组、导入文档含同名分组），读取与界面编辑不受影响；界面在侧边栏
   分组 ⋮ 菜单 / 右键菜单切换（`PATCH /api/groups/{id}` 的 `locked`）。
   系统分组「无分组」不可锁定、改名、删除（承载删除分组后任务的兜底迁移）。
-- MCP Server 与桌面端访问同一个 SQLite 数据库文件，写入后界面应能立即反映变化（界面刷新按钮会重载任务列表）。
+- MCP Server 与桌面端访问同一个 SQLite 数据库文件，写入后界面应能立即反映变化（界面刷新按钮会重载任务列表与提示词）。
 - 新增工具需同步更新使用说明（README 或 docs）。
 - 所有工具必须返回结构化 JSON，错误信息要能让 Agent 直接理解并处理。
 
