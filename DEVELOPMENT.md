@@ -53,7 +53,7 @@ Todo4Agent/
 │   ├── types.ts
 │   ├── i18n/               # 前端多语言（index.ts 初始化 + zh-CN / en-US 文案）
 │   ├── main.ts             # Vuetify 初始化（主题跟随系统深浅色、语言、代码字体）
-│   ├── App.vue             # 布局、认证门控、全局右键菜单兜底
+│   ├── App.vue             # 布局、认证门控、路径路由、全局右键菜单兜底
 │   └── components/         # 分组/任务/登录/设置/MCP/回收站视图、各对话框、
 │                           # ContextMenu（自定义右键菜单）、LocaleSwitch（语言切换）、
 │                           # InfoTip（ⓘ 悬停说明）、ConfirmDialog（确认对话框）
@@ -96,6 +96,11 @@ Todo4Agent/
 WebUI 与桌面端必须共享同一套功能与数据，禁止出现两套业务逻辑。后端 HTTP 服务固定监听
 3000 端口（被占用时顺延至 3010），生产环境 WebUI 即该端口；开发环境 Vite 监听 3001，
 将 `/api` 代理到后端。桌面端窗口在开发模式加载 Vite（3001），生产模式加载后端 WebUI（3000）。
+
+前端页面由路径标识（App.vue 内实现，无路由库）：`/group/{id}` 为清单组，`/archive`、
+`/trash`、`/mcp`、`/prompt`、`/settings` 为对应页面，其余路径回退默认视图；视图切换
+`pushState` 写入地址栏，刷新 / 前进 / 后退按路径恢复。前端路径不带 `/api` 前缀，与
+`/api/*` 接口（axum 优先匹配）互不影响；未命中的静态路径由后端回退 index.html（SPA）。
 
 ## 6. 数据库设计（草案）
 
@@ -249,3 +254,4 @@ CREATE TABLE prompts (
 12. WebUI 使用软件图标（favicon 与顶栏 logo），Windows 安装包中文化。
 13. 多语言（简体中文 / English）：界面文案、后端 HTTP / MCP 消息、错误提示全量双语，
     前端 vue-i18n + 后端 Fluent 语言包，缺失翻译回落中文。
+14. 前端路径路由：当前清单组与页面写入地址栏，刷新 / 直达链接 / 前进后退保持视图。
