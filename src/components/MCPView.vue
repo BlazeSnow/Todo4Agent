@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { createHighlighter, type Highlighter } from 'shiki'
+import InfoTip from './InfoTip.vue'
 
 const props = defineProps<{
   /** 当前登录用户名 */
@@ -102,10 +103,14 @@ async function copyConfig() {
     <p class="text-body-2 text-medium-emphasis mb-4">{{ t('mcp.subtitle') }}</p>
 
     <v-card class="mb-4">
+      <v-card-title class="d-flex align-center">
+        {{ t('mcp.launchTitle') }}
+        <InfoTip class="ml-1">
+          <p class="mb-2">{{ t('mcp.intro1') }}</p>
+          <p class="mb-0">{{ t('mcp.intro2') }}</p>
+        </InfoTip>
+      </v-card-title>
       <v-card-text>
-        <p class="mb-3">{{ t('mcp.intro1') }}</p>
-        <p class="mb-3">{{ t('mcp.intro2') }}</p>
-
         <div class="d-flex align-center">
           <v-chip class="font-mono mr-2" variant="outlined" label>
             todo4agent mcp

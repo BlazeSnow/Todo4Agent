@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ConfirmDialog from './ConfirmDialog.vue'
+import InfoTip from './InfoTip.vue'
 import { getPrompt, savePrompt } from '../api'
 import { dateLocale } from '../i18n'
 
@@ -77,8 +78,14 @@ function formatTime(iso: string | null): string {
 
 <template>
   <div>
-    <div class="d-flex align-center mb-1">
+    <div class="d-flex align-center mb-4">
       <h2 class="text-h6">{{ t('prompt.title') }}</h2>
+      <InfoTip class="ml-2">
+        {{ t('prompt.desc1') }}
+        <span class="font-mono">prompt_get</span> /
+        <span class="font-mono">prompt_update</span>
+        {{ t('prompt.desc2') }}
+      </InfoTip>
       <v-spacer />
       <v-btn variant="text" prepend-icon="mdi-content-copy" :disabled="!content" @click="copy">{{ t('prompt.copy') }}</v-btn>
       <v-btn
@@ -91,12 +98,6 @@ function formatTime(iso: string | null): string {
         {{ t('prompt.clear') }}
       </v-btn>
     </div>
-    <p class="text-body-2 text-medium-emphasis mb-4">
-      {{ t('prompt.desc1') }}
-      <span class="font-mono">prompt_get</span> /
-      <span class="font-mono">prompt_update</span>
-      {{ t('prompt.desc2') }}
-    </p>
 
     <v-textarea
       v-model="content"

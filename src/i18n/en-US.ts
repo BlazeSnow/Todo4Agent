@@ -5,6 +5,7 @@ export default {
     cancel: 'Cancel',
     delete: 'Delete',
     confirm: 'Confirm',
+    moreInfo: 'More info',
     edit: 'Edit',
     refresh: 'Refresh',
     moveUp: 'Move up',
@@ -143,6 +144,7 @@ export default {
     intro1:
       'This app exposes task list capabilities to Agents via MCP (Model Context Protocol over stdio transport). The Agent launches it as a subprocess and shares the same database as the desktop app.',
     intro2: 'Credentials are provided via environment variables; the connection is refused if authentication fails.',
+    launchTitle: 'Launch Command',
     copyCommand: 'Copy command',
     commandCopied: 'Command copied: todo4agent mcp',
     copyFailed: 'Copy failed, please copy manually',

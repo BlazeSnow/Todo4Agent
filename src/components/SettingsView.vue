@@ -14,6 +14,7 @@ import {
 import type { ExportDoc } from '../types'
 import packageJson from '../../package.json'
 import ConfirmDialog from './ConfirmDialog.vue'
+import InfoTip from './InfoTip.vue'
 
 const props = defineProps<{
   /** 当前登录用户名 */
@@ -270,9 +271,11 @@ async function changePassword() {
     </v-card>
 
     <v-card class="mb-4">
-      <v-card-title>{{ t('settings.restartApp') }}</v-card-title>
+      <v-card-title class="d-flex align-center">
+        {{ t('settings.restartApp') }}
+        <InfoTip class="ml-1" :text="t('settings.restartAppHint')" />
+      </v-card-title>
       <v-card-text>
-        <p class="text-body-2 text-medium-emphasis mb-4">{{ t('settings.restartAppHint') }}</p>
         <div class="d-flex align-center ga-3">
           <v-btn
             color="primary"
@@ -351,7 +354,10 @@ async function changePassword() {
     </v-card>
 
     <v-card class="mb-4">
-      <v-card-title>{{ t('settings.data') }}</v-card-title>
+      <v-card-title class="d-flex align-center">
+        {{ t('settings.data') }}
+        <InfoTip class="ml-1" :text="t('settings.dataHint')" />
+      </v-card-title>
       <v-card-text>
         <div v-if="dbPath" class="d-flex align-center ga-3 mb-4">
           <div class="text-body-2 flex-grow-1 db-path">
@@ -384,9 +390,6 @@ async function changePassword() {
             {{ t('settings.importJson') }}
           </v-btn>
         </div>
-        <p class="text-caption mt-2 text-medium-emphasis">
-          {{ t('settings.dataHint') }}
-        </p>
       </v-card-text>
     </v-card>
 

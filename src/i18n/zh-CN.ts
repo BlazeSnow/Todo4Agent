@@ -5,6 +5,7 @@ export default {
     cancel: '取消',
     delete: '删除',
     confirm: '确定',
+    moreInfo: '更多信息',
     edit: '编辑',
     refresh: '刷新',
     moveUp: '上移',
@@ -140,6 +141,7 @@ export default {
     intro1:
       '本软件通过 MCP（Model Context Protocol，stdio 传输）向 Agent 暴露任务清单能力，Agent 以子进程方式启动并连接，与桌面端共用同一个数据库。',
     intro2: '通过环境变量指定用户名与密码进行身份验证，验证失败将拒绝启动。',
+    launchTitle: '启动命令',
     copyCommand: '复制命令',
     commandCopied: '已复制命令：todo4agent mcp',
     copyFailed: '复制失败，请手动复制',
