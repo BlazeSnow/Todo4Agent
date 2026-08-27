@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { createHighlighter, type Highlighter } from 'shiki'
+import { useTheme } from 'vuetify'
+import type { Compartment } from '@codemirror/state'
+import type { EditorView } from '@codemirror/view'
 import ConfirmDialog from './ConfirmDialog.vue'
 import InfoTip from './InfoTip.vue'
 import { getPrompt, savePrompt } from '../api'
@@ -13,6 +15,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const vuetifyTheme = useTheme()
 
 const content = ref('')
 const isDefault = ref(true)
@@ -20,6 +23,81 @@ const updatedAt = ref<string | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const confirmClear = ref(false)
+
+// ---------- CodeMirror 6 Markdown 编辑器 ----------
+
+// 动态加载 CodeMirror（仅本页需要，避免增大首屏包）
+const editorHost = ref<HTMLElement | null>(null)
+/** 编辑器初始化失败时退回纯文本 textarea */
+const editorFailed = ref(false)
+let view: EditorView | null = null
+let themeComp: Compartment | null = null
+
+/** 深浅主题扩展：跟随 Vuetify 主题切换 github 风格 light / oneDark */
+async function buildExtensions(cmTheme: boolean) {
+  const { EditorView, placeholder: cmPlaceholder } = await import('@codemirror/view')
+  const { minimalSetup } = await import('codemirror')
+  const { markdown } = await import('@codemirror/lang-markdown')
+  const { oneDark } = await import('@codemirror/theme-one-dark')
+  return [
+    minimalSetup,
+    markdown(),
+    EditorView.lineWrapping,
+    cmPlaceholder(t('prompt.placeholder')),
+    // 固定高度容器内滚动；字体与「Agent 接入」页代码块一致
+    EditorView.theme({
+      '&': { height: '480px', fontSize: '13px' },
+      '.cm-scroller': {
+        fontFamily: "'Monaspace Neon', 'JetBrains Mono', Consolas, 'Courier New', monospace",
+        lineHeight: '1.7',
+      },
+      '.cm-content': { caretColor: 'rgb(var(--v-theme-primary))' },
+      '.cm-gutters': { userSelect: 'none' },
+    }),
+    themeComp!.of(cmTheme ? [oneDark] : []),
+  ]
+}
+
+/** 创建编辑器（初始文档为已加载的提示词内容） */
+async function initEditor(initial: string) {
+  const { EditorView } = await import('@codemirror/view')
+  const { EditorState, Compartment } = await import('@codemirror/state')
+  themeComp = new Compartment()
+  const exts = [
+    await buildExtensions(vuetifyTheme.current.value.dark),
+    EditorView.updateListener.of((u) => {
+      if (u.docChanged && view) content.value = view.state.doc.toString()
+    }),
+  ]
+  view = new EditorView({
+    parent: editorHost.value!,
+    state: EditorState.create({ doc: initial, extensions: exts }),
+  })
+}
+
+/** 主题切换：重配深浅扩展 */
+async function applyTheme() {
+  if (!view || !themeComp) return
+  view.dispatch({ effects: themeComp.reconfigure(await buildExtensions(vuetifyTheme.current.value.dark)) })
+}
+
+watch(content, (v) => {
+  // 编辑器内部变更已在 updateListener 同步到 content（同值不触发）；
+  // 这里只处理程序化修改（加载、清空）回写到编辑器
+  if (view && view.state.doc.toString() !== v) {
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } })
+  }
+})
+
+watch(
+  () => vuetifyTheme.current.value.dark,
+  () => applyTheme(),
+)
+
+onBeforeUnmount(() => {
+  view?.destroy()
+  view = null
+})
 
 async function save() {
   saving.value = true
@@ -62,72 +140,38 @@ function formatTime(iso: string | null): string {
   return isNaN(d.getTime()) ? iso : d.toLocaleString(dateLocale.value, { dateStyle: 'short', timeStyle: 'short' })
 }
 
-// ---------- Markdown 实时高亮（Shiki 双主题，与「Agent 接入」页同套） ----------
-
-/** 高亮层 HTML；引擎加载失败时为空，编辑器退回纯文本 */
-const mdHtml = ref('')
-const hlLayer = ref<HTMLElement | null>(null)
-let highlighter: Highlighter | null = null
-let hlTimer: number | undefined
-
-/** 防抖重渲染：输入停顿后再跑 Shiki，避免每次击键都整段高亮 */
-function scheduleHighlight() {
-  window.clearTimeout(hlTimer)
-  hlTimer = window.setTimeout(renderHighlighted, 200)
-}
-
-function renderHighlighted() {
-  if (!highlighter) return
-  // 末尾补一个换行：pre 不渲染最后的空行，会导致与 textarea 行对不齐
-  mdHtml.value = highlighter.codeToHtml(content.value + '\n', {
-    lang: 'markdown',
-    themes: { light: 'github-light', dark: 'github-dark' },
-    // 只输出 light/dark CSS 变量（同 MCPView，主题切换 CSS 见其全局样式）
-    defaultColor: false,
-  })
-}
-
-/** textarea 滚动同步到高亮层 */
-function syncScroll(e: Event) {
-  if (!hlLayer.value) return
-  const ta = e.target as HTMLElement
-  hlLayer.value.scrollTop = ta.scrollTop
-  hlLayer.value.scrollLeft = ta.scrollLeft
-}
-
-onBeforeUnmount(() => window.clearTimeout(hlTimer))
-
-watch(content, scheduleHighlight)
-
 onMounted(async () => {
-  try {
-    highlighter = await createHighlighter({
-      themes: ['github-light', 'github-dark'],
-      langs: ['markdown'],
-    })
-    renderHighlighted()
-  } catch {
-    mdHtml.value = ''
-  }
   loading.value = true
   try {
     const p = await getPrompt()
     content.value = p.content
     isDefault.value = p.is_default
     updatedAt.value = p.updated_at
+    await nextTickSafe()
+    try {
+      await initEditor(content.value)
+    } catch {
+      editorFailed.value = true
+    }
   } catch (e) {
     emit('error', (e as Error).message)
+    editorFailed.value = true
   } finally {
     loading.value = false
   }
 })
+
+/** 等一帧：编辑器挂载点需已在 DOM 中 */
+async function nextTickSafe() {
+  await new Promise((r) => requestAnimationFrame(() => r(null)))
+}
 </script>
 
 <template>
   <div>
     <div class="d-flex align-center mb-4">
       <h2 class="text-h6">{{ t('prompt.title') }}</h2>
-      <InfoTip>
+      <InfoTip class="ml-2">
         {{ t('prompt.desc1') }}
         <span class="font-mono">prompt_get</span> /
         <span class="font-mono">prompt_update</span>
@@ -146,24 +190,16 @@ onMounted(async () => {
       </v-btn>
     </div>
 
-    <!-- 叠加编辑器：Shiki 高亮层在下、透明文字的 textarea 在上（行宽与换行规则严格一致）；
-         高亮不可用时只有 textarea，退回纯文本编辑 -->
+    <!-- CodeMirror 6 Markdown 编辑器（动态加载）；初始化失败退回纯文本 -->
     <div class="prompt-editor mb-3">
-      <pre
-        v-if="mdHtml"
-        ref="hlLayer"
-        class="prompt-hl shiki"
-        aria-hidden="true"
-        v-html="mdHtml"
-      ></pre>
+      <div ref="editorHost" class="prompt-cm" :aria-label="t('prompt.title')"></div>
       <textarea
+        v-if="editorFailed"
         v-model="content"
-        class="prompt-input"
-        :disabled="loading"
+        class="prompt-fallback"
         :aria-label="t('prompt.title')"
         :placeholder="t('prompt.placeholder')"
         spellcheck="false"
-        @scroll="syncScroll"
       ></textarea>
       <v-progress-linear v-if="loading" indeterminate absolute bottom />
     </div>
@@ -192,49 +228,39 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* 叠加编辑器：两层必须使用完全一致的字体度量与换行规则，保证行对齐 */
 .prompt-editor {
   position: relative;
-  height: 480px;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
   background: rgb(var(--v-theme-surface));
   overflow: hidden;
 }
-.prompt-hl,
-.prompt-input {
-  margin: 0;
+/* CodeMirror 容器填满编辑区；深浅主题由编辑器扩展自行着色 */
+.prompt-cm {
+  min-height: 480px;
+}
+.prompt-cm :deep(.cm-editor) {
+  border-radius: 8px;
+}
+.prompt-cm :deep(.cm-editor.cm-focused) {
+  outline: none;
+}
+/* 降级纯文本编辑器 */
+.prompt-fallback {
+  display: block;
+  width: 100%;
+  min-height: 480px;
   padding: 12px;
+  border: none;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
   font-family: 'Monaspace Neon', 'JetBrains Mono', Consolas, 'Courier New', monospace;
   font-size: 13px;
   line-height: 1.7;
-  tab-size: 4;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  word-break: break-word;
 }
-/* 高亮层：绝对铺满容器，仅随 textarea 滚动联动 */
-.prompt-hl {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-/* 输入层：文字透明（透出下层高亮），光标与选区保持可见 */
-.prompt-input {
-  position: relative;
-  z-index: 1;
-  display: block;
-  width: 100%;
-  height: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  background: transparent;
-  color: transparent;
-  caret-color: rgb(var(--v-theme-primary));
-}
-.prompt-input::placeholder {
+.prompt-fallback::placeholder {
   color: rgba(var(--v-theme-on-surface), 0.45);
 }
 </style>

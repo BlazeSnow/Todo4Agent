@@ -20,8 +20,13 @@
     "mcp": "cargo run --manifest-path src-tauri/Cargo.toml -- mcp"
   },
   "dependencies": {
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/theme-one-dark": "^6.1.3",
+    "@codemirror/view": "^6.43.9",
     "@fontsource/monaspace-neon": "^5.3.0",
     "@mdi/font": "^7.4.47",
+    "codemirror": "^6.0.2",
     "shiki": "^4.4.3",
     "vue": "^3.5.41",
     "vue-i18n": "^11.4.9",
