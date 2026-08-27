@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import type { Task } from '../types'
 import { NO_GROUP_NAME } from '../types'
 import { dateLocale, sortLocale } from '../i18n'
@@ -25,6 +26,9 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { width } = useDisplay()
+/** 小屏（手机）：按钮切换为纯图标模式 */
+const isSmall = computed(() => width.value < 600)
 
 /** 标题区显示的分组名：系统分组「无分组」按界面语言显示 */
 const headingName = computed(() =>
@@ -175,17 +179,16 @@ function overdue(task: Task): boolean {
       <div class="header-actions">
         <v-menu>
           <template #activator="{ props }">
-            <!-- 小屏（手机）仅显示图标，≥sm 断点恢复文字 -->
+            <!-- 小屏（手机）切换为 Vuetify 原生图标按钮，保证图标居中；
+                 icon 属性仅在无默认插槽时渲染图标，文字走 text 属性 -->
             <v-btn
               v-bind="props"
               variant="text"
-              prepend-icon="mdi-sort-variant"
+              :icon="isSmall ? 'mdi-sort-variant' : undefined"
+              :prepend-icon="isSmall ? undefined : 'mdi-sort-variant'"
+              :text="isSmall ? undefined : t('taskList.sort', { mode: sortModeLabel })"
               :aria-label="t('taskList.sort', { mode: sortModeLabel })"
-            >
-              <span class="d-none d-sm-inline">
-                {{ t('taskList.sort', { mode: sortModeLabel }) }}
-              </span>
-            </v-btn>
+            />
           </template>
           <v-list density="compact">
             <v-list-item
@@ -197,9 +200,14 @@ function overdue(task: Task): boolean {
             />
           </v-list>
         </v-menu>
-        <v-btn color="primary" prepend-icon="mdi-plus" :aria-label="t('taskList.newTask')" @click="$emit('create')">
-          <span class="d-none d-sm-inline">{{ t('taskList.newTask') }}</span>
-        </v-btn>
+        <v-btn
+          color="primary"
+          :icon="isSmall ? 'mdi-plus' : undefined"
+          :prepend-icon="isSmall ? undefined : 'mdi-plus'"
+          :text="isSmall ? undefined : t('taskList.newTask')"
+          :aria-label="t('taskList.newTask')"
+          @click="$emit('create')"
+        />
       </div>
     </div>
 

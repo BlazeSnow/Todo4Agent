@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useLocale as useVuetifyLocale } from 'vuetify'
+import { useDisplay, useLocale as useVuetifyLocale } from 'vuetify'
 import { LOCALE_NAMES, setLocale, type AppLocale } from '../i18n'
 
 withDefaults(defineProps<{ variant?: 'text' | 'tonal' }>(), { variant: 'text' })
@@ -9,6 +9,8 @@ withDefaults(defineProps<{ variant?: 'text' | 'tonal' }>(), { variant: 'text' })
 const { t, locale } = useI18n()
 const current = computed(() => locale.value as AppLocale)
 const vuetifyLocale = useVuetifyLocale()
+const { width } = useDisplay()
+const isSmall = computed(() => width.value < 600)
 
 /** 切换语言：i18n 主文案 + Vuetify 内置文案 + 持久化 */
 function pick(l: AppLocale) {
@@ -20,15 +22,16 @@ function pick(l: AppLocale) {
 <template>
   <v-menu>
     <template #activator="{ props }">
+      <!-- 小屏（手机）切换为 Vuetify 原生图标按钮，保证图标居中；
+           icon 属性仅在无默认插槽时渲染图标，文字走 text 属性 -->
       <v-btn
         v-bind="props"
         :variant="variant"
-        prepend-icon="mdi-translate"
+        :icon="isSmall ? 'mdi-translate' : undefined"
+        :prepend-icon="isSmall ? undefined : 'mdi-translate'"
+        :text="isSmall ? undefined : LOCALE_NAMES[current]"
         :aria-label="t('common.language')"
-      >
-        <!-- 小屏（手机）仅显示图标，≥sm 断点恢复文字 -->
-        <span class="d-none d-sm-inline">{{ LOCALE_NAMES[current] }}</span>
-      </v-btn>
+      />
     </template>
     <v-list density="compact">
       <v-list-item

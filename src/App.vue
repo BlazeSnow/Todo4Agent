@@ -519,15 +519,16 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
         </span>
       </v-app-bar-title>
       <LocaleSwitch />
-      <!-- 小屏（手机）仅显示图标，≥sm 断点恢复文字 -->
+      <!-- 小屏（手机）切换为 Vuetify 原生图标按钮（正方形、图标居中）；
+           注意 icon 属性仅在无默认插槽时才渲染图标，文字须走 text 属性 -->
       <v-btn
         variant="text"
-        prepend-icon="mdi-refresh"
+        :icon="isSmall ? 'mdi-refresh' : undefined"
+        :prepend-icon="isSmall ? undefined : 'mdi-refresh'"
+        :text="isSmall ? undefined : t('common.refresh')"
         :aria-label="t('common.refresh')"
         @click="refresh"
-      >
-        <span class="d-none d-sm-inline">{{ t('common.refresh') }}</span>
-      </v-btn>
+      />
     </v-app-bar>
 
     <v-navigation-drawer
