@@ -635,10 +635,15 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
 </template>
 
 <style scoped>
+/* 标题内容 flex 垂直居中：logo 按 inline 基线对齐会随行高偏移数像素，
+   与右侧按钮图标不在同一水平线（Vuetify 4 的内容层为 __placeholder） */
+:deep(.v-toolbar-title__placeholder) {
+  display: flex;
+  align-items: center;
+}
 .app-logo {
   width: 24px;
   height: 24px;
   margin-right: 8px;
-  vertical-align: text-bottom;
 }
 </style>
