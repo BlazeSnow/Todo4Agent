@@ -512,8 +512,9 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
       </template>
       <v-app-bar-title>
         <img src="/favicon.ico" alt="Todo4Agent" class="app-logo" />
-        Todo4Agent
-        <span class="text-body-2 text-medium-emphasis ml-2">
+        <!-- 小屏（手机）仅显示 Logo，≥sm 断点恢复应用名与副标题 -->
+        <span class="d-none d-sm-inline">Todo4Agent</span>
+        <span class="text-body-2 text-medium-emphasis ml-2 d-none d-sm-inline">
           {{ t('app.tagline') }}
         </span>
       </v-app-bar-title>
