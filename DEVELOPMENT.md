@@ -54,9 +54,11 @@ Todo4Agent/
 │   ├── i18n/               # 前端多语言（index.ts 初始化 + zh-CN / en-US 文案）
 │   ├── main.ts             # Vuetify 初始化（主题跟随系统深浅色、语言、代码字体）
 │   ├── App.vue             # 布局、认证门控、路径路由、全局右键菜单兜底
-│   └── components/         # 分组/任务/登录/设置/MCP/回收站视图、各对话框、
-│                           # ContextMenu（自定义右键菜单）、LocaleSwitch（语言切换）、
-│                           # InfoTip（ⓘ 悬停说明）、ConfirmDialog（确认对话框）
+│   └── components/         # 分组/任务/归档/提示词/登录/设置/MCP/回收站视图、
+│                           # 各对话框、ContextMenu（自定义右键菜单）、
+│                           # LocaleSwitch（语言切换）、InfoTip（ⓘ 悬停说明）、
+│                           # ConfirmDialog（确认对话框）、
+│                           # ArchiveTaskCard（归档页专用扁平任务卡片）
 ├── public/                 # 静态资源：favicon.ico（WebUI favicon 与顶栏 logo）
 ├── src-tauri/              # Rust 后端（Tauri 2）
 │   ├── src/
