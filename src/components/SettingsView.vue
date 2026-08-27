@@ -5,6 +5,8 @@ import {
   authChangePassword,
   downloadExport,
   exportDoc,
+  exportFileName,
+  exportSaveFile,
   getSettings,
   importDoc,
   openDbLocation,
@@ -22,7 +24,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'exported'): void
   (e: 'imported'): void
   (e: 'logout'): void
   (e: 'error', msg: string): void
@@ -34,12 +35,18 @@ const { t } = useI18n()
 const exporting = ref(false)
 const importing = ref(false)
 
+/** 导出：桌面模式写入系统下载目录并提示完整路径；网页模式回退浏览器下载并提示文件名 */
 async function onExport() {
   exporting.value = true
   try {
+    const r = await exportSaveFile()
+    if (r.supported && r.path) {
+      emit('notify', t('settings.exportSavedPath', { path: r.path }))
+      return
+    }
     const doc = await exportDoc()
     downloadExport(doc)
-    emit('exported')
+    emit('notify', t('settings.exportDownloaded', { name: exportFileName() }))
   } catch (e) {
     emit('error', (e as Error).message)
   } finally {

@@ -38,6 +38,7 @@ task-not-in-trash = 任务不在回收站
 group-not-in-trash = 分组不在回收站
 
 # ---------- 导入导出 / 设置 / 提示词 ----------
+export-write-failed = 写入导出文件失败: {$err}
 import-empty = 导入内容为空
 port-range = 端口范围：1024-65535
 prompt-save-error = 保存提示词结果异常

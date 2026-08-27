@@ -38,6 +38,7 @@ task-not-in-trash = Task is not in the trash
 group-not-in-trash = Group is not in the trash
 
 # ---------- Import / Settings / Prompt ----------
+export-write-failed = Failed to write export file: {$err}
 import-empty = Import content is empty
 port-range = Port range: 1024-65535
 prompt-save-error = Unexpected result while saving the prompt

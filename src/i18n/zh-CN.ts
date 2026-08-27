@@ -37,7 +37,6 @@ export default {
     taskRestored: '已恢复任务',
     groupRestoredRenamed: '原名被占用，已恢复并重命名为：{name}',
     groupRestored: '已恢复分组及其任务',
-    exported: '已导出 JSON',
     sessionExpired: '登录已失效，请重新登录',
   },
   confirm: {
@@ -199,6 +198,8 @@ export default {
     newPassword: '新密码（至少 4 位）',
     passwordChanged: '密码已修改',
     data: '数据',
+    exportSavedPath: '已导出到：{path}',
+    exportDownloaded: '已开始下载 {name}，位置见浏览器下载列表',
     dbFile: '数据库文件：',
     openDbLocation: '打开数据库文件位置',
     dbLocated: '已在系统文件管理器中定位数据库文件',

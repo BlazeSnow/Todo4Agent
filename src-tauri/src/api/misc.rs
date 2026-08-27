@@ -42,6 +42,43 @@ pub async fn import_json(
 
 // ---------- 设置 ----------
 
+/// 导出任务清单为 JSON 并写入系统下载目录（桌面模式），返回写入文件的完整路径；
+/// serve 模式（浏览器访问另一台机器）不支持，返回 supported=false 由前端回退浏览器下载
+pub async fn export_file(
+    State(st): State<SharedState>,
+    Extension(cur): Extension<CurrentUser>,
+    lang: Lang,
+) -> ApiResult {
+    if st.app_handle.is_none() {
+        return ok_json(json!({ "supported": false }));
+    }
+    let c = st.db.lock().unwrap();
+    let doc = match db::export_all(&c, cur.0) {
+        Ok(doc) => doc,
+        Err(e) => return internal(lang, e),
+    };
+    let body = serde_json::to_string_pretty(&doc).unwrap();
+    let dir = dirs::download_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let name = format!(
+        "todo4agent-export-{}.json",
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    );
+    let path = dir.join(&name);
+    if let Err(e) = std::fs::write(&path, body) {
+        return err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &crate::lang::tr_a(lang, "export-write-failed", &[("err", &e.to_string())]),
+        );
+    }
+    ok_json(json!({
+        "supported": true,
+        "path": path.display().to_string(),
+        "name": name
+    }))
+}
+
 pub async fn get_settings(State(st): State<SharedState>) -> ApiResult {
     let c = st.db.lock().unwrap();
     ok_json(json!({

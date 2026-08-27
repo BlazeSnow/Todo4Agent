@@ -37,7 +37,6 @@ export default {
     taskRestored: 'Task restored',
     groupRestoredRenamed: 'Original name was taken; restored and renamed to: {name}',
     groupRestored: 'Group and its tasks restored',
-    exported: 'JSON exported',
     sessionExpired: 'Session expired, please sign in again',
   },
   confirm: {
@@ -205,6 +204,8 @@ export default {
     newPassword: 'New password (at least 4 characters)',
     passwordChanged: 'Password changed',
     data: 'Data',
+    exportSavedPath: 'Exported to: {path}',
+    exportDownloaded: 'Downloading {name}; see your browser downloads for the location',
     dbFile: 'Database file: ',
     openDbLocation: 'Reveal database file location',
     dbLocated: 'Database file located in the system file manager',

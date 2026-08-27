@@ -149,6 +149,7 @@ fn api_router(state: SharedState) -> Router {
         .route("/archive", get(get_archive))
         .route("/trash", get(get_trash).delete(empty_trash))
         .route("/export", get(export_json))
+        .route("/export/file", post(export_file))
         .route("/import", post(import_json))
         .route("/settings", get(get_settings).patch(update_settings))
         .route("/settings/db-location", post(open_db_location))

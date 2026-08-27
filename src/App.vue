@@ -514,12 +514,6 @@ function onEmptyTrash() {
   confirmDialog.value = true
 }
 
-// ---------- 导出（由设置页触发） ----------
-
-function notifyExported() {
-  notify(t('app.exported'))
-}
-
 /** 导入完成后刷新各视图数据 */
 async function onImported() {
   await Promise.all([loadGroups(), loadTrash()])
@@ -641,7 +635,6 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
         <SettingsView
           v-else-if="currentView === 'settings'"
           :current-user="currentUser"
-          @exported="notifyExported"
           @imported="onImported"
           @logout="onLogout"
           @error="notify"

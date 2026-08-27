@@ -250,13 +250,25 @@ export function restartApp(): Promise<{ restarting: boolean }> {
   return request<{ restarting: boolean }>('/app/restart', { method: 'POST' })
 }
 
+/** 导出文件名（本地日期时间戳，避免覆盖同日多次导出；与后端写入下载目录的命名一致） */
+export function exportFileName(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `todo4agent-export-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.json`
+}
+
+/** 桌面模式：导出并写入系统下载目录，返回完整路径；serve 模式返回 supported=false（前端回退浏览器下载） */
+export function exportSaveFile(): Promise<{ supported: boolean; path?: string; name?: string }> {
+  return request<{ supported: boolean; path?: string; name?: string }>('/export/file', { method: 'POST' })
+}
+
 /** 导出 JSON 并触发浏览器下载 */
 export function downloadExport(doc: ExportDoc): void {
   const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `todo4agent-export-${new Date().toISOString().slice(0, 10)}.json`
+  a.download = exportFileName()
   a.click()
   URL.revokeObjectURL(url)
 }
