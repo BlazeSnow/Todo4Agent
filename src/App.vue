@@ -70,6 +70,58 @@ type TrashAction = 'group' | 'task' | 'purgeGroup' | 'purgeTask' | 'emptyTrash' 
 const confirmAction = ref<{ type: TrashAction; id?: number } | null>(null)
 const currentView = ref<'tasks' | 'settings' | 'mcp' | 'prompt' | 'archive' | 'trash'>('tasks')
 
+// ---------- 路径路由（保留当前页面，刷新后不回默认界面） ----------
+
+type ViewName = (typeof currentView.value)
+
+/** 从路径解析视图与分组：/group/{id}、/archive、/trash、/mcp、/prompt、/settings */
+function parseRoute(): { view: ViewName | null; groupId: number | null } {
+  const seg = location.pathname.replace(/\/+$/, '').split('/').filter(Boolean)
+  if (seg.length === 1) {
+    const v = seg[0]
+    if (v === 'archive' || v === 'trash' || v === 'mcp' || v === 'prompt' || v === 'settings') {
+      return { view: v, groupId: null }
+    }
+  } else if (seg.length === 2 && seg[0] === 'group') {
+    const n = Number(seg[1])
+    if (Number.isInteger(n) && n > 0) return { view: 'tasks', groupId: n }
+  }
+  return { view: null, groupId: null }
+}
+
+/** 当前状态对应的路径 */
+function routePath(): string {
+  if (currentView.value !== 'tasks') return `/${currentView.value}`
+  return selectedGroupId.value != null ? `/group/${selectedGroupId.value}` : '/'
+}
+
+/** 页面生命周期内的首次路径同步：replaceState 避免首个默认分组压入多余历史记录 */
+let routeSynced = false
+
+/** 状态变化 → 地址栏（路径相同不操作） */
+function syncRoute() {
+  const p = routePath()
+  if (location.pathname === p) return
+  if (routeSynced) history.pushState({}, '', p)
+  else {
+    history.replaceState({}, '', p)
+    routeSynced = true
+  }
+}
+
+/** 地址栏 → 状态（初始加载 / 登录后 / 浏览器前进后退） */
+function applyRoute() {
+  const r = parseRoute()
+  if (r.view) currentView.value = r.view
+  if (r.groupId != null) selectedGroupId.value = r.groupId
+}
+
+function onPopState() {
+  applyRoute()
+}
+
+watch([currentView, selectedGroupId], syncRoute)
+
 // ---------- 认证门控 ----------
 
 type AuthState = 'loading' | 'guest' | 'ready'
@@ -94,6 +146,7 @@ async function initAuth() {
 function onLoggedIn(username: string) {
   currentUser.value = username
   authState.value = 'ready'
+  applyRoute()
   loadGroups()
 }
 
@@ -200,13 +253,20 @@ function dismissSplash() {
 }
 
 onMounted(async () => {
+  window.addEventListener('popstate', onPopState)
   await initAuth()
   // 首屏（登录页或主界面）渲染完成后淡出开屏，分组数据在其后继续加载
   await nextTick()
   dismissSplash()
   if (authState.value !== 'guest') {
+    // 先按路径恢复视图与分组，再加载分组列表校验（失效分组回退到第一个）
+    applyRoute()
     await loadGroups()
   }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('popstate', onPopState)
 })
 
 // ---------- 分组 ----------
