@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { Group, Task } from '../types'
 import { NO_GROUP_NAME } from '../types'
 import { dateLocale } from '../i18n'
+import InfoTip from './InfoTip.vue'
 
 const props = defineProps<{
   /** 已归档的任务（后端按归档时间倒序返回） */
@@ -66,11 +67,11 @@ function groupNameOf(groupId: number): string {
     <div class="d-flex align-center mb-4">
       <v-icon icon="mdi-archive-outline" class="mr-2" />
       <h2 class="text-h6">{{ t('archive.title') }}</h2>
+      <InfoTip :text="t('archive.hint')" />
       <v-chip v-if="tasks.length > 0" size="small" variant="tonal" class="ml-3">
         {{ t('archive.taskCount', { n: tasks.length }) }}
       </v-chip>
       <v-spacer />
-      <span class="text-caption text-medium-emphasis">{{ t('archive.hint') }}</span>
     </div>
 
     <v-empty
