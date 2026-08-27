@@ -273,7 +273,7 @@ async function changePassword() {
     <v-card class="mb-4">
       <v-card-title class="d-flex align-center">
         {{ t('settings.restartApp') }}
-        <InfoTip class="ml-1" :text="t('settings.restartAppHint')" />
+        <InfoTip :text="t('settings.restartAppHint')" />
       </v-card-title>
       <v-card-text>
         <div class="d-flex align-center ga-3">
@@ -356,7 +356,7 @@ async function changePassword() {
     <v-card class="mb-4">
       <v-card-title class="d-flex align-center">
         {{ t('settings.data') }}
-        <InfoTip class="ml-1" :text="t('settings.dataHint')" />
+        <InfoTip :text="t('settings.dataHint')" />
       </v-card-title>
       <v-card-text>
         <div v-if="dbPath" class="d-flex align-center ga-3 mb-4">

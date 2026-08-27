@@ -80,7 +80,7 @@ function formatTime(iso: string | null): string {
   <div>
     <div class="d-flex align-center mb-4">
       <h2 class="text-h6">{{ t('prompt.title') }}</h2>
-      <InfoTip class="ml-2">
+      <InfoTip>
         {{ t('prompt.desc1') }}
         <span class="font-mono">prompt_get</span> /
         <span class="font-mono">prompt_update</span>

@@ -105,7 +105,7 @@ async function copyConfig() {
     <v-card class="mb-4">
       <v-card-title class="d-flex align-center">
         {{ t('mcp.launchTitle') }}
-        <InfoTip class="ml-1">
+        <InfoTip>
           <p class="mb-2">{{ t('mcp.intro1') }}</p>
           <p class="mb-0">{{ t('mcp.intro2') }}</p>
         </InfoTip>

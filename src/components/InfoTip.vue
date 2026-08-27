@@ -29,6 +29,8 @@ const { t } = useI18n()
 
 <style scoped>
 .info-tip {
+  /* 与左侧标题文字保持固定间距，无需各使用处单独加 margin */
+  margin-left: 8px;
   cursor: help;
   opacity: 0.7;
 }
