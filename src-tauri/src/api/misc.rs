@@ -13,11 +13,12 @@ use crate::db;
 pub async fn export_json(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
+    lang: Lang,
 ) -> ApiResult {
     let c = st.db.lock().unwrap();
     match db::export_all(&c, cur.0) {
         Ok(doc) => ok_json(serde_json::to_value(doc).unwrap()),
-        Err(e) => internal(e),
+        Err(e) => internal(lang, e),
     }
 }
 
@@ -25,20 +26,58 @@ pub async fn export_json(
 pub async fn import_json(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
+    lang: Lang,
     Json(doc): Json<db::ExportDoc>,
 ) -> ApiResult {
     if doc.groups.is_empty() {
-        return err(StatusCode::BAD_REQUEST, "导入内容为空");
+        return err(StatusCode::BAD_REQUEST, &tr(lang, "import-empty"));
     }
     let c = st.db.lock().unwrap();
     match db::import_doc(&c, cur.0, &doc) {
         Ok(r) => ok_json(serde_json::to_value(r).unwrap()),
-        Err(e) => internal(e),
+        Err(e) => internal(lang, e),
     }
 }
 
 
 // ---------- 设置 ----------
+
+/// 导出任务清单为 JSON 并写入系统下载目录（桌面模式），返回写入文件的完整路径；
+/// serve 模式（浏览器访问另一台机器）不支持，返回 supported=false 由前端回退浏览器下载
+pub async fn export_file(
+    State(st): State<SharedState>,
+    Extension(cur): Extension<CurrentUser>,
+    lang: Lang,
+) -> ApiResult {
+    if st.app_handle.is_none() {
+        return ok_json(json!({ "supported": false }));
+    }
+    let c = st.db.lock().unwrap();
+    let doc = match db::export_all(&c, cur.0) {
+        Ok(doc) => doc,
+        Err(e) => return internal(lang, e),
+    };
+    let body = serde_json::to_string_pretty(&doc).unwrap();
+    let dir = dirs::download_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let name = format!(
+        "todo4agent-export-{}.json",
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    );
+    let path = dir.join(&name);
+    if let Err(e) = std::fs::write(&path, body) {
+        return err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &crate::lang::tr_a(lang, "export-write-failed", &[("err", &e.to_string())]),
+        );
+    }
+    ok_json(json!({
+        "supported": true,
+        "path": path.display().to_string(),
+        "name": name
+    }))
+}
 
 pub async fn get_settings(State(st): State<SharedState>) -> ApiResult {
     let c = st.db.lock().unwrap();
@@ -94,29 +133,30 @@ pub struct SettingsInput {
 /// 保存服务设置：只更新传入的字段（webui_lan 与 port 重启后生效，其余立即生效）
 pub async fn update_settings(
     State(st): State<SharedState>,
+    lang: Lang,
     Json(body): Json<SettingsInput>,
 ) -> ApiResult {
     if let Some(p) = body.port {
         if !(1024..=65535).contains(&p) {
-            return err(StatusCode::BAD_REQUEST, "端口范围：1024-65535");
+            return err(StatusCode::BAD_REQUEST, &tr(lang, "port-range"));
         }
     }
     let c = st.db.lock().unwrap();
     if let Some(p) = body.port {
         if let Err(e) = db::set_setting(&c, db::SETTINGS_PORT_KEY, &p.to_string()) {
-            return internal(e);
+            return internal(lang, e);
         }
     }
     if let Some(v) = body.webui_lan {
         if let Err(e) = db::set_setting(&c, db::SETTINGS_WEBUI_LAN_KEY, if v { "1" } else { "0" })
         {
-            return internal(e);
+            return internal(lang, e);
         }
     }
     if let Some(v) = body.allow_register {
         if let Err(e) = db::set_setting(&c, db::SETTINGS_ALLOW_REGISTER_KEY, if v { "1" } else { "0" })
         {
-            return internal(e);
+            return internal(lang, e);
         }
     }
     ok_json(json!({
@@ -124,4 +164,23 @@ pub async fn update_settings(
         "webui_lan": db::get_webui_lan(&c).unwrap_or(true),
         "allow_register": db::get_allow_register(&c).unwrap_or(true)
     }))
+}
+
+// ---------- 应用重启 ----------
+
+/// 重启整个应用。先回复本请求，再延迟触发，确保响应送达前端后进程才退出：
+/// - 桌面模式：交给 Tauri 事件循环整体重启（主窗口随新进程重建）
+/// - serve 模式：优雅停机 HTTP 服务，由 serve_blocking 在停机后重新拉起进程
+pub async fn restart_app(State(st): State<SharedState>) -> ApiResult {
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        match &st.app_handle {
+            Some(app) => app.request_restart(),
+            None => {
+                st.respawn.store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = st.shutdown.send(true);
+            }
+        }
+    });
+    ok_json(json!({ "restarting": true }))
 }

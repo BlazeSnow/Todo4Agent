@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { createHighlighter, type Highlighter } from 'shiki'
+import InfoTip from './InfoTip.vue'
 
 const props = defineProps<{
   /** 当前登录用户名 */
@@ -10,6 +12,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'notify', msg: string): void
 }>()
+
+const { t } = useI18n()
 
 // MCP 工具清单（与后端 mcp.rs 保持一致）
 const mcpTools = [
@@ -25,9 +29,9 @@ const mcpTools = [
 async function copyCommand() {
   try {
     await navigator.clipboard.writeText('todo4agent mcp')
-    emit('notify', '已复制命令：todo4agent mcp')
+    emit('notify', t('mcp.commandCopied'))
   } catch {
-    emit('notify', '复制失败，请手动复制')
+    emit('notify', t('mcp.copyFailed'))
   }
 }
 
@@ -40,8 +44,8 @@ const configText = computed(() =>
           command: 'todo4agent',
           args: ['mcp'],
           env: {
-            TODO4AGENT_USERNAME: props.currentUser ?? '你的用户名',
-            TODO4AGENT_PASSWORD: '你的密码',
+            TODO4AGENT_USERNAME: props.currentUser ?? t('mcp.usernamePlaceholder'),
+            TODO4AGENT_PASSWORD: t('mcp.passwordPlaceholder'),
           },
         },
       },
@@ -86,49 +90,48 @@ watch(configText, renderHighlighted)
 async function copyConfig() {
   try {
     await navigator.clipboard.writeText(configText.value)
-    emit('notify', '已复制 Agent 客户端配置')
+    emit('notify', t('mcp.configCopied'))
   } catch {
-    emit('notify', '复制失败，请手动复制')
+    emit('notify', t('mcp.copyFailed'))
   }
 }
 </script>
 
 <template>
   <div>
-    <h2 class="text-h6 mb-1">Agent 接入（MCP）</h2>
-    <p class="text-body-2 text-medium-emphasis mb-4">通过 MCP 协议让 Agent 操作任务清单</p>
+    <h2 class="text-h6 mb-1">{{ t('mcp.title') }}</h2>
+    <p class="text-body-2 text-medium-emphasis mb-4">{{ t('mcp.subtitle') }}</p>
 
-    <v-card variant="outlined" class="mb-4">
+    <v-card class="mb-4">
+      <v-card-title class="d-flex align-center">
+        {{ t('mcp.launchTitle') }}
+        <InfoTip>
+          <p class="mb-2">{{ t('mcp.intro1') }}</p>
+          <p class="mb-0">{{ t('mcp.intro2') }}</p>
+        </InfoTip>
+      </v-card-title>
       <v-card-text>
-        <p class="mb-3">
-          本软件通过 MCP（Model Context Protocol，stdio 传输）向 Agent 暴露任务清单能力，
-          Agent 以子进程方式启动并连接，与桌面端共用同一个数据库。
-        </p>
-        <p class="mb-3">
-          通过环境变量指定用户名与密码进行身份验证，验证失败将拒绝启动。
-        </p>
-
         <div class="d-flex align-center">
           <v-chip class="font-mono mr-2" variant="outlined" label>
             todo4agent mcp
           </v-chip>
           <v-btn size="small" variant="tonal" prepend-icon="mdi-content-copy" @click="copyCommand">
-            复制命令
+            {{ t('mcp.copyCommand') }}
           </v-btn>
         </div>
       </v-card-text>
     </v-card>
 
-    <v-card variant="outlined" class="mb-4">
+    <v-card class="mb-4">
       <v-card-title class="d-flex align-center justify-space-between gap-2">
-        <span>Agent 客户端配置示例</span>
+        <span>{{ t('mcp.configTitle') }}</span>
         <v-btn
           size="small"
           variant="tonal"
           prepend-icon="mdi-content-copy"
           @click="copyConfig"
         >
-          复制配置
+          {{ t('mcp.copyConfig') }}
         </v-btn>
       </v-card-title>
       <v-card-text>
@@ -139,8 +142,8 @@ async function copyConfig() {
       </v-card-text>
     </v-card>
 
-    <v-card variant="outlined">
-      <v-card-title>可用工具</v-card-title>
+    <v-card>
+      <v-card-title>{{ t('mcp.tools') }}</v-card-title>
       <v-card-text>
         <v-list density="compact">
           <v-list-item v-for="t in mcpTools" :key="t">
@@ -185,7 +188,12 @@ async function copyConfig() {
   overflow-x: auto;
   font-size: 13px;
   line-height: 1.6;
-  font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+}
+
+/* 代码字体：Shiki 高亮块（.shiki code）与高亮不可用时的纯文本回退（pre.code-block） */
+.shiki code,
+pre.code-block {
+  font-family: 'Monaspace Neon', 'JetBrains Mono', Consolas, 'Courier New', monospace;
 }
 
 /* 高亮不可用时的纯文本回退：深色主题用近黑面板色，浅色沿用 surface-variant */

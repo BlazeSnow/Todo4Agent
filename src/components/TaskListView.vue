@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import type { Task } from '../types'
+import { NO_GROUP_NAME } from '../types'
+import { dateLocale, sortLocale } from '../i18n'
 import ContextMenu, { type ContextMenuItem } from './ContextMenu.vue'
 
 const props = defineProps<{
@@ -21,6 +25,16 @@ const emit = defineEmits<{
   (e: 'reorder', taskIds: number[]): void
 }>()
 
+const { t } = useI18n()
+const { width } = useDisplay()
+/** 小屏（手机）：按钮切换为纯图标模式 */
+const isSmall = computed(() => width.value < 600)
+
+/** 标题区显示的分组名：系统分组「无分组」按界面语言显示 */
+const headingName = computed(() =>
+  props.groupName === NO_GROUP_NAME ? t('groups.noGroup') : props.groupName,
+)
+
 // ---------- 排序 ----------
 
 type SortMode = 'time' | 'title'
@@ -28,8 +42,8 @@ type SortMode = 'time' | 'title'
 /** null 表示默认顺序（后端返回的原始顺序） */
 const sortMode = ref<SortMode | null>(null)
 const sortModeLabel = computed(() => {
-  if (sortMode.value === null) return '默认顺序'
-  return sortMode.value === 'time' ? '按截止时间' : '按标题'
+  if (sortMode.value === null) return t('taskList.sortDefault')
+  return sortMode.value === 'time' ? t('taskList.sortTime') : t('taskList.sortTitle')
 })
 
 /** 按当前排序模式展示的任务列表（不修改原始数组） */
@@ -44,12 +58,17 @@ const displayedTasks = computed<Task[]>(() => {
       return a.due_at.localeCompare(b.due_at)
     })
   } else if (sortMode.value === 'title') {
-    list.sort((a, b) => a.title.localeCompare(b.title, 'zh-Hans-CN'))
+    list.sort((a, b) => a.title.localeCompare(b.title, sortLocale.value))
   }
   return list
 })
 
-/** 点击已选中的排序项时恢复默认顺序 */
+const sortOptions = computed(() => [
+  { value: null, label: t('taskList.sortDefault') },
+  { value: 'time' as SortMode, label: t('taskList.sortTime') },
+  { value: 'title' as SortMode, label: t('taskList.sortTitle') },
+])
+
 /** 选择排序方式；null 为默认顺序 */
 function toggleSort(mode: SortMode | null) {
   sortMode.value = mode
@@ -88,7 +107,7 @@ function openTaskCtx(task: Task, e: MouseEvent) {
     y: e.clientY,
     items: [
       {
-        label: task.status === 'done' ? '标记未完成' : '标记完成',
+        label: task.status === 'done' ? t('taskList.markUndone') : t('taskList.markDone'),
         icon: 'mdi-check',
         action: () => emit('toggle', task),
       },
@@ -96,13 +115,13 @@ function openTaskCtx(task: Task, e: MouseEvent) {
       ...(sortMode.value === null
         ? [
             {
-              label: '上移',
+              label: t('common.moveUp'),
               icon: 'mdi-arrow-up',
               disabled: !canMove(task, -1),
               action: () => moveTask(task, -1),
             },
             {
-              label: '下移',
+              label: t('common.moveDown'),
               icon: 'mdi-arrow-down',
               disabled: !canMove(task, 1),
               action: () => moveTask(task, 1),
@@ -110,14 +129,14 @@ function openTaskCtx(task: Task, e: MouseEvent) {
           ]
         : []),
       { divider: true },
-      { label: '编辑', icon: 'mdi-pencil', action: () => emit('edit', task) },
+      { label: t('common.edit'), icon: 'mdi-pencil', action: () => emit('edit', task) },
       {
-        label: '归档',
+        label: t('taskList.archive'),
         icon: 'mdi-archive-arrow-down-outline',
         action: () => emit('archive', task),
       },
       {
-        label: '删除',
+        label: t('common.delete'),
         icon: 'mdi-delete',
         color: 'error',
         action: () => emit('remove', task),
@@ -125,12 +144,6 @@ function openTaskCtx(task: Task, e: MouseEvent) {
     ],
   }
 }
-
-const sortOptions: { value: SortMode | null; label: string }[] = [
-  { value: null, label: '默认顺序' },
-  { value: 'time', label: '按截止时间' },
-  { value: 'title', label: '按标题' },
-]
 
 // ---------- 双击编辑 ----------
 
@@ -146,7 +159,7 @@ function onDblClick(task: Task, e: MouseEvent) {
 function formatDue(iso: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
-  return d.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+  return d.toLocaleString(dateLocale.value, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function overdue(task: Task): boolean {
@@ -160,15 +173,22 @@ function overdue(task: Task): boolean {
   <div>
     <div class="list-header">
       <div class="group-heading">
-        <h2 class="group-title">{{ groupName ?? '未选择分组' }}</h2>
+        <h2 class="group-title">{{ headingName ?? t('taskList.noGroupSelected') }}</h2>
         <div v-if="groupDescription" class="group-desc">{{ groupDescription }}</div>
       </div>
       <div class="header-actions">
         <v-menu>
           <template #activator="{ props }">
-            <v-btn v-bind="props" variant="text" prepend-icon="mdi-sort-variant">
-              排序：{{ sortModeLabel }}
-            </v-btn>
+            <!-- 小屏（手机）切换为 Vuetify 原生图标按钮，保证图标居中；
+                 icon 属性仅在无默认插槽时渲染图标，文字走 text 属性 -->
+            <v-btn
+              v-bind="props"
+              variant="text"
+              :icon="isSmall ? 'mdi-sort-variant' : undefined"
+              :prepend-icon="isSmall ? undefined : 'mdi-sort-variant'"
+              :text="isSmall ? undefined : t('taskList.sort', { mode: sortModeLabel })"
+              :aria-label="t('taskList.sort', { mode: sortModeLabel })"
+            />
           </template>
           <v-list density="compact">
             <v-list-item
@@ -180,13 +200,18 @@ function overdue(task: Task): boolean {
             />
           </v-list>
         </v-menu>
-        <v-btn color="primary" prepend-icon="mdi-plus" @click="$emit('create')">
-          新建任务
-        </v-btn>
+        <v-btn
+          color="primary"
+          :icon="isSmall ? 'mdi-plus' : undefined"
+          :prepend-icon="isSmall ? undefined : 'mdi-plus'"
+          :text="isSmall ? undefined : t('taskList.newTask')"
+          :aria-label="t('taskList.newTask')"
+          @click="$emit('create')"
+        />
       </div>
     </div>
 
-    <div v-if="!groupName" class="empty-tip">请先在左侧创建分组</div>
+    <div v-if="!groupName" class="empty-tip">{{ t('taskList.createGroupFirst') }}</div>
 
     <div v-if="loading" class="list-loading" />
 
@@ -195,7 +220,7 @@ function overdue(task: Task): boolean {
       class="task-item"
       v-for="task in displayedTasks"
       :key="task.id"
-      :title="`双击编辑：${task.title}`"
+      :title="t('taskList.dblclickToEdit', { title: task.title })"
       @contextmenu.stop="openTaskCtx(task, $event)"
       @dblclick="onDblClick(task, $event)"
     >
@@ -203,7 +228,7 @@ function overdue(task: Task): boolean {
         type="checkbox"
         class="task-check task-lead"
         :checked="task.status === 'done'"
-        :aria-label="`完成：${task.title}`"
+        :aria-label="t('taskList.completeAria', { title: task.title })"
         @change="$emit('toggle', task)"
       />
       <div class="task-main">
@@ -226,37 +251,37 @@ function overdue(task: Task): boolean {
               icon="mdi-dots-horizontal"
               size="small"
               variant="text"
-              :aria-label="`更多操作：${task.title}`"
+              :aria-label="t('common.moreActions', { name: task.title })"
             />
           </template>
           <v-list density="compact">
             <v-list-item
               prepend-icon="mdi-arrow-up"
-              title="上移"
+              :title="t('common.moveUp')"
               :disabled="!canMove(task, -1)"
               @click="moveTask(task, -1)"
             />
             <v-list-item
               prepend-icon="mdi-arrow-down"
-              title="下移"
+              :title="t('common.moveDown')"
               :disabled="!canMove(task, 1)"
               @click="moveTask(task, 1)"
             />
             <v-divider />
             <v-list-item
               prepend-icon="mdi-pencil"
-              title="编辑"
+              :title="t('common.edit')"
               @click="$emit('edit', task)"
             />
             <v-list-item
               prepend-icon="mdi-archive-arrow-down-outline"
-              title="归档"
-              subtitle="保留在归档时间线中"
+              :title="t('taskList.archive')"
+              :subtitle="t('taskList.archiveSubtitle')"
               @click="$emit('archive', task)"
             />
             <v-list-item
               prepend-icon="mdi-delete"
-              title="删除"
+              :title="t('common.delete')"
               color="error"
               @click="$emit('remove', task)"
             />
@@ -270,8 +295,8 @@ function overdue(task: Task): boolean {
       class="empty-state"
     >
       <i class="mdi mdi-inbox-outline"></i>
-      <div class="empty-title">暂无任务</div>
-      <div class="empty-text">点击右上角「新建任务」，或让 Agent 通过 MCP 添加</div>
+      <div class="empty-title">{{ t('taskList.empty') }}</div>
+      <div class="empty-text">{{ t('taskList.emptyHint') }}</div>
     </div>
 
     <ContextMenu

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Group, Task, TaskInput } from '../types'
 import { onEnterSubmit } from '../ime'
 
@@ -15,6 +16,8 @@ const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
   (e: 'save', input: TaskInput): void
 }>()
+
+const { t } = useI18n()
 
 const groupId = ref<number | null>(null)
 const title = ref('')
@@ -62,26 +65,26 @@ function save() {
     @update:model-value="emit('update:modelValue', $event)"
   >
     <v-card>
-      <v-card-title>{{ task ? '编辑任务' : '新建任务' }}</v-card-title>
+      <v-card-title>{{ task ? t('taskDialog.editTitle') : t('taskDialog.createTitle') }}</v-card-title>
       <v-card-text>
         <v-select
           v-model="groupId"
           :items="groups"
           item-title="name"
           item-value="id"
-          label="分组"
+          :label="t('taskDialog.group')"
           :disabled="groups.length === 0"
           class="mb-2"
         />
-        <v-text-field v-model="title" label="任务标题" required autofocus @keydown.enter="onEnterSubmit($event, save)" />
-        <v-textarea v-model="description" label="详细说明（可选）" rows="3" auto-grow />
-        <v-text-field v-model="dueLocal" label="截止时间（可选）" type="datetime-local" clearable />
+        <v-text-field v-model="title" :label="t('taskDialog.title')" required autofocus @keydown.enter="onEnterSubmit($event, save)" />
+        <v-textarea v-model="description" :label="t('taskDialog.description')" rows="3" auto-grow />
+        <v-text-field v-model="dueLocal" :label="t('taskDialog.due')" type="datetime-local" clearable />
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="text" @click="emit('update:modelValue', false)">取消</v-btn>
+        <v-btn variant="text" @click="emit('update:modelValue', false)">{{ t('common.cancel') }}</v-btn>
         <v-btn color="primary" :disabled="!title.trim() || groupId == null" @click="save">
-          保存
+          {{ t('common.save') }}
         </v-btn>
       </v-card-actions>
     </v-card>

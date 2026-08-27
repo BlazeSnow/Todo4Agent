@@ -15,9 +15,14 @@ use tauri::{
     AppHandle, Manager, WindowEvent,
 };
 
+// 加载 locales/ 下的 Fluent 语言包（编译期内嵌为静态 LOCALES，
+// 缺失键回落中文）；查询入口见 lang 模块
+fluent_i18n::i18n!("locales", fallback = "zh-CN");
+
 mod api;
 mod auth;
 mod db;
+mod lang;
 mod mcp;
 
 /// 命令行运行模式
@@ -149,7 +154,7 @@ MCP 接入（客户端配置示例，ZCode / Claude Desktop 通用格式）:
         "数据:\n  任务数据保存在本地 SQLite，当前路径:\n    {}\n  可用环境变量 TODO4AGENT_DB 指定其他位置。",
         db::db_path().display()
     );
-    println!("\n文档: https://github.com/BlazeSnow/Todo4Agent");
+    println!("\n文档: https://github.com/Todo4Agent/Todo4Agent");
 }
 
 fn run_desktop(port_override: Option<u16>) {
@@ -165,7 +170,7 @@ fn run_desktop(port_override: Option<u16>) {
         }))
         .setup(move |app| {
             // 能走到这里的一定是首个实例：先启动 HTTP 服务，再按实际端口创建窗口
-            let port = api::spawn_server(port_override);
+            let port = api::spawn_server(port_override, app.handle().clone());
             let url = if dev {
                 "http://localhost:3001".to_string()
             } else {

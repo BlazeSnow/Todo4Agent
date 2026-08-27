@@ -1,16 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   authChangePassword,
   downloadExport,
   exportDoc,
+  exportFileName,
+  exportSaveFile,
   getSettings,
   importDoc,
   openDbLocation,
+  restartApp,
   updateSettings,
 } from '../api'
 import type { ExportDoc } from '../types'
 import packageJson from '../../package.json'
+import ConfirmDialog from './ConfirmDialog.vue'
+import InfoTip from './InfoTip.vue'
 
 const props = defineProps<{
   /** 当前登录用户名 */
@@ -18,22 +24,29 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'exported'): void
   (e: 'imported'): void
   (e: 'logout'): void
   (e: 'error', msg: string): void
   (e: 'notify', msg: string): void
 }>()
 
+const { t } = useI18n()
+
 const exporting = ref(false)
 const importing = ref(false)
 
+/** 导出：桌面模式写入系统下载目录并提示完整路径；网页模式回退浏览器下载并提示文件名 */
 async function onExport() {
   exporting.value = true
   try {
+    const r = await exportSaveFile()
+    if (r.supported && r.path) {
+      emit('notify', t('settings.exportSavedPath', { path: r.path }))
+      return
+    }
     const doc = await exportDoc()
     downloadExport(doc)
-    emit('exported')
+    emit('notify', t('settings.exportDownloaded', { name: exportFileName() }))
   } catch (e) {
     emit('error', (e as Error).message)
   } finally {
@@ -52,9 +65,9 @@ function onPickImport() {
     let doc: ExportDoc
     try {
       doc = JSON.parse(await file.text())
-      if (!Array.isArray(doc.groups)) throw new Error('缺少 groups 字段')
+      if (!Array.isArray(doc.groups)) throw new Error('missing groups')
     } catch (e) {
-      emit('error', '文件不是有效的 Todo4Agent 导出 JSON')
+      emit('error', t('settings.invalidFile'))
       return
     }
     importing.value = true
@@ -63,7 +76,13 @@ function onPickImport() {
       emit('imported')
       emit(
         'notify',
-        `导入完成：新建 ${r.groups_created} 组、并入 ${r.groups_merged} 组、导入 ${r.tasks_imported} 个任务${r.prompt_imported ? '、已导入提示词' : ''}${r.tasks_skipped ? `、跳过 ${r.tasks_skipped} 个空任务` : ''}`,
+        t('settings.importDone', {
+          created: r.groups_created,
+          merged: r.groups_merged,
+          imported: r.tasks_imported,
+        }) +
+          (r.prompt_imported ? t('settings.importPrompt') : '') +
+          (r.tasks_skipped ? t('settings.importSkipped', { skipped: r.tasks_skipped }) : ''),
       )
     } catch (e) {
       emit('error', (e as Error).message)
@@ -86,10 +105,7 @@ async function onWebuiChange() {
   savingWebui.value = true
   try {
     await updateSettings({ webui_lan: webuiLan.value })
-    emit(
-      'notify',
-      webuiLan.value ? '已开启对外访问，重启应用后生效' : '已切换为仅本机访问，重启应用后生效',
-    )
+    emit('notify', webuiLan.value ? t('settings.webuiLanOn') : t('settings.webuiLanOff'))
   } catch (e) {
     webuiLan.value = !webuiLan.value
     emit('error', (e as Error).message)
@@ -103,7 +119,7 @@ async function onRegisterChange() {
   savingRegister.value = true
   try {
     await updateSettings({ allow_register: allowRegister.value })
-    emit('notify', allowRegister.value ? '已允许注册新账号' : '已关闭注册')
+    emit('notify', allowRegister.value ? t('settings.registerOn') : t('settings.registerOff'))
   } catch (e) {
     allowRegister.value = !allowRegister.value
     emit('error', (e as Error).message)
@@ -141,12 +157,41 @@ async function savePort() {
   savingPort.value = true
   try {
     await updateSettings({ port: Number(portInput.value) })
-    emit('notify', '端口已保存，重启应用后生效')
+    emit('notify', t('settings.portSaved'))
   } catch (e) {
     emit('error', (e as Error).message)
   } finally {
     savingPort.value = false
   }
+}
+
+// ---------- 应用重启 ----------
+
+const restartConfirm = ref(false)
+const restarting = ref(false)
+
+/** 触发应用重启，轮询等待服务恢复后自动刷新页面（桌面模式窗口随新进程重建） */
+async function doRestart() {
+  restarting.value = true
+  try {
+    await restartApp()
+  } catch {
+    // 进程退出导致的连接中断属预期，继续等待服务恢复
+  }
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 1000))
+    try {
+      const res = await fetch('/api/auth/status', { cache: 'no-store' })
+      if (res.ok) {
+        location.reload()
+        return
+      }
+    } catch {
+      // 服务尚未恢复，继续轮询
+    }
+  }
+  restarting.value = false
+  emit('error', t('settings.restartTimeout'))
 }
 
 // ---------- 数据库文件 ----------
@@ -160,7 +205,7 @@ async function onOpenDbLocation() {
   try {
     const r = await openDbLocation()
     dbPath.value = r.path
-    emit('notify', '已在系统文件管理器中定位数据库文件')
+    emit('notify', t('settings.dbLocated'))
   } catch (e) {
     emit('error', (e as Error).message)
   } finally {
@@ -179,7 +224,7 @@ async function changePassword() {
   changingPass.value = true
   try {
     await authChangePassword(oldPass.value, newPass2.value)
-    emit('notify', '密码已修改')
+    emit('notify', t('settings.passwordChanged'))
     oldPass.value = ''
     newPass2.value = ''
   } catch (e) {
@@ -192,64 +237,86 @@ async function changePassword() {
 
 <template>
   <div>
-    <h2 class="text-h6 mb-1">设置</h2>
-    <p class="text-body-2 text-medium-emphasis mb-4">数据、服务与关于信息</p>
+    <h2 class="text-h6 mb-1">{{ t('settings.title') }}</h2>
+    <p class="text-body-2 text-medium-emphasis mb-4">{{ t('settings.subtitle') }}</p>
 
-    <v-card variant="outlined" class="mb-4">
-      <v-card-title>服务</v-card-title>
+    <v-card class="mb-4">
+      <v-card-title>{{ t('settings.service') }}</v-card-title>
       <v-card-text>
         <v-switch
           v-model="webuiLan"
           color="primary"
-          label="允许局域网访问 WebUI（监听 0.0.0.0）"
+          :label="t('settings.webuiLan')"
           :loading="savingWebui"
           hide-details
           class="mb-1"
           @change="onWebuiChange"
         />
         <p class="text-caption text-medium-emphasis mb-3">
-          关闭后仅本机可访问；修改需重启应用生效
+          {{ t('settings.webuiLanHint') }}
         </p>
         <div v-if="effectivePort != null" class="text-body-2 mb-3">
-          当前监听端口：<span class="font-mono">{{ effectivePort }}</span>
+          {{ t('settings.currentPort') }}<span class="font-mono">{{ effectivePort }}</span>
         </div>
         <v-text-field
           v-model="portInput"
-          label="WebUI / API 端口（1024-65535）"
+          :label="t('settings.port')"
           type="number"
-          :rules="[() => portValid || '端口范围：1024-65535']"
+          :rules="[() => portValid || t('settings.portRange')]"
           hide-details="auto"
           class="mb-2"
         />
         <div class="d-flex align-center">
           <v-btn color="primary" :loading="savingPort" :disabled="!portValid" @click="savePort">
-            保存
+            {{ t('common.save') }}
           </v-btn>
           <span class="text-caption text-medium-emphasis ml-3">
-            修改后需重启应用生效
+            {{ t('settings.restartHint') }}
           </span>
         </div>
       </v-card-text>
     </v-card>
 
-    <v-card variant="outlined" class="mb-4">
-      <v-card-title>用户</v-card-title>
+    <v-card class="mb-4">
+      <v-card-title class="d-flex align-center">
+        {{ t('settings.restartApp') }}
+        <InfoTip :text="t('settings.restartAppHint')" />
+      </v-card-title>
+      <v-card-text>
+        <div class="d-flex align-center ga-3">
+          <v-btn
+            color="primary"
+            prepend-icon="mdi-restart"
+            :loading="restarting"
+            @click="restartConfirm = true"
+          >
+            {{ t('settings.restartNow') }}
+          </v-btn>
+          <span v-if="restarting" class="text-caption text-medium-emphasis">
+            {{ t('settings.restarting') }}
+          </span>
+        </div>
+      </v-card-text>
+    </v-card>
+
+    <v-card class="mb-4">
+      <v-card-title>{{ t('settings.user') }}</v-card-title>
       <v-card-text>
         <v-switch
           v-model="allowRegister"
           color="primary"
-          label="允许注册新账号"
+          :label="t('settings.allowRegister')"
           :loading="savingRegister"
           hide-details
           class="mb-1"
           @change="onRegisterChange"
         />
         <p class="text-caption text-medium-emphasis mb-3">
-          关闭后登录页不再显示注册入口；立即生效
+          {{ t('settings.allowRegisterHint') }}
         </p>
         <div class="d-flex align-center mb-3">
           <v-icon icon="mdi-account-circle" class="mr-2" color="primary" />
-          <span class="text-body-1">当前用户：{{ currentUser ?? '未登录' }}</span>
+          <span class="text-body-1">{{ currentUser ? t('settings.currentUser', { name: currentUser }) : t('settings.notLoggedIn') }}</span>
           <v-spacer />
           <v-btn
             v-if="currentUser"
@@ -257,17 +324,17 @@ async function changePassword() {
             prepend-icon="mdi-logout"
             @click="$emit('logout')"
           >
-            退出登录
+            {{ t('settings.logout') }}
           </v-btn>
         </div>
 
         <v-divider class="my-3" />
 
-        <div class="text-subtitle-2 mb-2">修改密码</div>
+        <div class="text-subtitle-2 mb-2">{{ t('settings.changePassword') }}</div>
         <form @submit.prevent="changePassword">
           <v-text-field
             v-model="oldPass"
-            label="原密码"
+            :label="t('settings.oldPassword')"
             type="password"
             autocomplete="current-password"
             class="mb-2"
@@ -275,7 +342,7 @@ async function changePassword() {
           />
           <v-text-field
             v-model="newPass2"
-            label="新密码（至少 4 位）"
+            :label="t('settings.newPassword')"
             type="password"
             autocomplete="new-password"
             class="mb-2"
@@ -287,18 +354,21 @@ async function changePassword() {
             :loading="changingPass"
             :disabled="oldPass.length < 4 || newPass2.length < 4"
           >
-            修改密码
+            {{ t('settings.changePassword') }}
           </v-btn>
         </form>
       </v-card-text>
     </v-card>
 
-    <v-card variant="outlined" class="mb-4">
-      <v-card-title>数据</v-card-title>
+    <v-card class="mb-4">
+      <v-card-title class="d-flex align-center">
+        {{ t('settings.data') }}
+        <InfoTip :text="t('settings.dataHint')" />
+      </v-card-title>
       <v-card-text>
         <div v-if="dbPath" class="d-flex align-center ga-3 mb-4">
           <div class="text-body-2 flex-grow-1 db-path">
-            数据库文件：<span class="font-mono text-medium-emphasis">{{ dbPath }}</span>
+            {{ t('settings.dbFile') }}<span class="font-mono text-medium-emphasis">{{ dbPath }}</span>
           </div>
           <v-btn
             variant="tonal"
@@ -306,7 +376,7 @@ async function changePassword() {
             :loading="openingDb"
             @click="onOpenDbLocation"
           >
-            打开数据库文件位置
+            {{ t('settings.openDbLocation') }}
           </v-btn>
         </div>
         <div class="d-flex align-center ga-3">
@@ -316,7 +386,7 @@ async function changePassword() {
             :loading="exporting"
             @click="onExport"
           >
-            导出 JSON
+            {{ t('settings.exportJson') }}
           </v-btn>
           <v-btn
             variant="tonal"
@@ -324,37 +394,43 @@ async function changePassword() {
             :loading="importing"
             @click="onPickImport"
           >
-            导入 JSON
+            {{ t('settings.importJson') }}
           </v-btn>
         </div>
-        <p class="text-caption mt-2 text-medium-emphasis">
-          导出全部任务清单为 JSON 文件，便于备份或迁移；导入时同名分组会并入（任务追加），新分组新建。
-        </p>
       </v-card-text>
     </v-card>
 
-    <v-card variant="outlined">
-      <v-card-title>关于</v-card-title>
+    <v-card>
+      <v-card-title>{{ t('settings.about') }}</v-card-title>
       <v-card-text>
         <v-list density="compact">
-          <v-list-item title="版本">
+          <v-list-item :title="t('settings.version')">
             <template #append>
               <span class="text-medium-emphasis">v{{ packageJson.version }}</span>
             </template>
           </v-list-item>
-          <v-list-item title="软件说明">
+          <v-list-item :title="t('settings.description')">
             <template #append>
-              <span class="text-medium-emphasis text-right">为 Agent 设计的 MCP 任务清单</span>
+              <span class="text-medium-emphasis text-right">{{ t('settings.descriptionText') }}</span>
             </template>
           </v-list-item>
-          <v-list-item title="仓库">
+          <v-list-item :title="t('settings.repo')">
             <template #append>
-              <span class="text-medium-emphasis">github.com/BlazeSnow/Todo4Agent</span>
+              <span class="text-medium-emphasis">github.com/Todo4Agent/Todo4Agent</span>
             </template>
           </v-list-item>
         </v-list>
       </v-card-text>
     </v-card>
+
+    <ConfirmDialog
+      v-model="restartConfirm"
+      :title="t('settings.restartApp')"
+      :message="t('settings.restartConfirm')"
+      color="primary"
+      :confirm-text="t('common.confirm')"
+      @confirm="doRestart"
+    />
   </div>
 </template>
 

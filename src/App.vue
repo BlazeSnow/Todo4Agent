@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
 import GroupSidebar from './components/GroupSidebar.vue'
 import ContextMenu, { type ContextMenuItem } from './components/ContextMenu.vue'
@@ -13,6 +14,7 @@ import PromptView from './components/PromptView.vue'
 import TrashView from './components/TrashView.vue'
 import ArchiveView from './components/ArchiveView.vue'
 import LoginView from './components/LoginView.vue'
+import LocaleSwitch from './components/LocaleSwitch.vue'
 import {
   authLogout,
   authStatus,
@@ -39,6 +41,9 @@ import {
   updateTask,
 } from './api'
 import type { Group, Task, TaskInput } from './types'
+import type PromptViewType from './components/PromptView.vue'
+
+const { t } = useI18n()
 
 const groups = ref<Group[]>([])
 const tasks = ref<Task[]>([])
@@ -66,6 +71,58 @@ type TrashAction = 'group' | 'task' | 'purgeGroup' | 'purgeTask' | 'emptyTrash' 
 const confirmAction = ref<{ type: TrashAction; id?: number } | null>(null)
 const currentView = ref<'tasks' | 'settings' | 'mcp' | 'prompt' | 'archive' | 'trash'>('tasks')
 
+// ---------- 路径路由（保留当前页面，刷新后不回默认界面） ----------
+
+type ViewName = (typeof currentView.value)
+
+/** 从路径解析视图与分组：/group/{id}、/archive、/trash、/mcp、/prompt、/settings */
+function parseRoute(): { view: ViewName | null; groupId: number | null } {
+  const seg = location.pathname.replace(/\/+$/, '').split('/').filter(Boolean)
+  if (seg.length === 1) {
+    const v = seg[0]
+    if (v === 'archive' || v === 'trash' || v === 'mcp' || v === 'prompt' || v === 'settings') {
+      return { view: v, groupId: null }
+    }
+  } else if (seg.length === 2 && seg[0] === 'group') {
+    const n = Number(seg[1])
+    if (Number.isInteger(n) && n > 0) return { view: 'tasks', groupId: n }
+  }
+  return { view: null, groupId: null }
+}
+
+/** 当前状态对应的路径 */
+function routePath(): string {
+  if (currentView.value !== 'tasks') return `/${currentView.value}`
+  return selectedGroupId.value != null ? `/group/${selectedGroupId.value}` : '/'
+}
+
+/** 页面生命周期内的首次路径同步：replaceState 避免首个默认分组压入多余历史记录 */
+let routeSynced = false
+
+/** 状态变化 → 地址栏（路径相同不操作） */
+function syncRoute() {
+  const p = routePath()
+  if (location.pathname === p) return
+  if (routeSynced) history.pushState({}, '', p)
+  else {
+    history.replaceState({}, '', p)
+    routeSynced = true
+  }
+}
+
+/** 地址栏 → 状态（初始加载 / 登录后 / 浏览器前进后退） */
+function applyRoute() {
+  const r = parseRoute()
+  if (r.view) currentView.value = r.view
+  if (r.groupId != null) selectedGroupId.value = r.groupId
+}
+
+function onPopState() {
+  applyRoute()
+}
+
+watch([currentView, selectedGroupId], syncRoute)
+
 // ---------- 认证门控 ----------
 
 type AuthState = 'loading' | 'guest' | 'ready'
@@ -90,6 +147,7 @@ async function initAuth() {
 function onLoggedIn(username: string) {
   currentUser.value = username
   authState.value = 'ready'
+  applyRoute()
   loadGroups()
 }
 
@@ -178,11 +236,15 @@ async function loadTasks() {
 watch(selectedGroupId, loadTasks)
 
 /** 手动刷新：重载分组与当前视图数据（MCP 等外部修改后同步界面） */
+const promptView = ref<InstanceType<typeof PromptViewType> | null>(null)
+
 async function refresh() {
   await loadGroups()
   if (selectedGroupId.value != null) await loadTasks()
   if (currentView.value === 'archive') await loadArchive()
   if (currentView.value === 'trash') await loadTrash()
+  // 提示词可被 Agent 经 MCP 修改，刷新时一并重载（覆盖本地未保存编辑）
+  if (currentView.value === 'prompt') await promptView.value?.reload()
 }
 
 const authReady = computed(() => authState.value !== 'loading')
@@ -196,13 +258,20 @@ function dismissSplash() {
 }
 
 onMounted(async () => {
+  window.addEventListener('popstate', onPopState)
   await initAuth()
   // 首屏（登录页或主界面）渲染完成后淡出开屏，分组数据在其后继续加载
   await nextTick()
   dismissSplash()
   if (authState.value !== 'guest') {
+    // 先按路径恢复视图与分组，再加载分组列表校验（失效分组回退到第一个）
+    applyRoute()
     await loadGroups()
   }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('popstate', onPopState)
 })
 
 // ---------- 分组 ----------
@@ -228,10 +297,10 @@ async function onGroupDialogSave(name: string, description: string) {
   try {
     if (groupDialogMode.value === 'create') {
       await createGroup(name, description)
-      notify(`已创建分组：${name}`)
+      notify(t('app.groupCreated', { name }))
     } else if (groupDialogTarget.value) {
       await updateGroup(groupDialogTarget.value.id, { name, description })
-      notify(`已保存分组修改：${name}`)
+      notify(t('app.groupSaved', { name }))
     }
     await loadGroups()
   } catch (e) {
@@ -243,11 +312,7 @@ async function onGroupDialogSave(name: string, description: string) {
 async function onToggleGroupLock(group: Group) {
   try {
     const g = await setGroupLocked(group.id, !group.locked)
-    notify(
-      g.locked
-        ? `已锁定清单「${g.name}」：Agent 无法编辑该清单`
-        : `已解锁清单「${g.name}」：Agent 可编辑`,
-    )
+    notify(g.locked ? t('app.groupLocked', { name: g.name }) : t('app.groupUnlocked', { name: g.name }))
     await loadGroups()
   } catch (e) {
     notify((e as Error).message)
@@ -275,7 +340,7 @@ function openEditTask(task: Task) {
 async function onArchiveTask(task: Task) {
   try {
     await archiveTask(task.id)
-    notify(`已归档：${task.title}`)
+    notify(t('app.taskArchived', { title: task.title }))
     await loadTasks()
   } catch (e) {
     notify((e as Error).message)
@@ -286,7 +351,7 @@ async function onArchiveTask(task: Task) {
 async function onUnarchiveTask(task: Task) {
   try {
     await unarchiveTask(task.id)
-    notify(`已取消归档：${task.title}`)
+    notify(t('app.taskUnarchived', { title: task.title }))
     await loadArchive()
     // 任务回到清单：当前分组列表可能仍是旧数据，一并刷新
     await loadTasks()
@@ -309,10 +374,10 @@ async function onTaskDialogSave(input: TaskInput) {
         description: input.description,
         due_at: input.due_at,
       })
-      notify('任务已更新')
+      notify(t('app.taskUpdated'))
     } else {
       await createTask(input)
-      notify('任务已创建')
+      notify(t('app.taskCreated'))
     }
     if (selectedGroupId.value !== input.group_id) {
       selectedGroupId.value = input.group_id
@@ -363,17 +428,17 @@ async function onReorderGroups(groupIds: number[]) {
 const confirmMessage = computed(() => {
   switch (confirmAction.value?.type) {
     case 'group':
-      return '删除后组内任务（含已归档）将移入「无分组」，分组移入回收站。确定删除吗？'
+      return t('confirm.deleteGroup')
     case 'task':
-      return '删除后任务将移入回收站，可随时恢复。确定删除吗？'
+      return t('confirm.deleteTask')
     case 'purgeGroup':
-      return '将彻底删除该分组，不可恢复；其任务已在删除时移入「无分组」。确定继续吗？'
+      return t('confirm.purgeGroup')
     case 'purgeTask':
-      return '将彻底删除该任务，不可恢复。确定继续吗？'
+      return t('confirm.purgeTask')
     case 'emptyTrash':
-      return '将彻底删除回收站中的所有分组与任务，不可恢复。确定继续吗？'
+      return t('confirm.emptyTrash')
     case 'archivedTask':
-      return '任务将移入回收站，可随时恢复。确定移出归档吗？'
+      return t('confirm.archivedTask')
     default:
       return ''
   }
@@ -387,32 +452,32 @@ async function doConfirm() {
     switch (action.type) {
       case 'group':
         await deleteGroup(action.id!)
-        notify('已移入回收站')
+        notify(t('app.movedToTrash'))
         await loadGroups()
         break
       case 'task':
         await deleteTask(action.id!)
-        notify('已移入回收站')
+        notify(t('app.movedToTrash'))
         await loadTasks()
         break
       case 'purgeGroup':
         await purgeGroup(action.id!)
-        notify('已彻底删除分组')
+        notify(t('app.groupPurged'))
         await loadTrash()
         break
       case 'purgeTask':
         await purgeTask(action.id!)
-        notify('已彻底删除任务')
+        notify(t('app.taskPurged'))
         await loadTrash()
         break
       case 'emptyTrash':
         await emptyTrash()
-        notify('回收站已清空')
+        notify(t('app.trashEmptied'))
         await loadTrash()
         break
       case 'archivedTask':
         await deleteTask(action.id!)
-        notify('已移入回收站')
+        notify(t('app.movedToTrash'))
         await loadArchive()
         break
     }
@@ -426,11 +491,11 @@ async function onRestoreTrash(kind: 'group' | 'task', id: number) {
   try {
     if (kind === 'task') {
       await restoreTask(id)
-      notify('已恢复任务')
+      notify(t('app.taskRestored'))
       await loadTasks()
     } else {
       const r = await restoreGroup(id)
-      notify(r.renamed_to ? `原名被占用，已恢复并重命名为：${r.renamed_to}` : '已恢复分组及其任务')
+      notify(r.renamed_to ? t('app.groupRestoredRenamed', { name: r.renamed_to }) : t('app.groupRestored'))
       await loadGroups()
     }
     await loadTrash()
@@ -447,12 +512,6 @@ function onPurgeTrash(kind: 'group' | 'task', id: number) {
 function onEmptyTrash() {
   confirmAction.value = { type: 'emptyTrash' }
   confirmDialog.value = true
-}
-
-// ---------- 导出（由设置页触发） ----------
-
-function notifyExported() {
-  notify('已导出 JSON')
 }
 
 /** 导入完成后刷新各视图数据 */
@@ -475,12 +534,12 @@ function onGlobalContextMenu(e: MouseEvent) {
     y: e.clientY,
     items: [
       {
-        label: '新建任务',
+        label: t('app.newTask'),
         icon: 'mdi-plus',
         disabled: currentView.value !== 'tasks' || selectedGroupId.value == null,
         action: openCreateTask,
       },
-      { label: '刷新', icon: 'mdi-refresh', action: () => refresh() },
+      { label: t('common.refresh'), icon: 'mdi-refresh', action: () => refresh() },
     ],
   }
 }
@@ -506,18 +565,29 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           v-if="!isLarge"
           :icon="drawer ? 'mdi-menu-open' : 'mdi-menu'"
           variant="text"
-          aria-label="切换侧边栏"
+          :aria-label="t('app.toggleSidebar')"
           @click="drawer = !drawer"
         />
       </template>
       <v-app-bar-title>
         <img src="/favicon.ico" alt="Todo4Agent" class="app-logo" />
-        Todo4Agent
-        <span class="text-body-2 text-medium-emphasis ml-2">
-          为 Agent 设计的 MCP 任务清单
+        <!-- 小屏（手机）仅显示 Logo，≥sm 断点恢复应用名与副标题 -->
+        <span class="d-none d-sm-inline">Todo4Agent</span>
+        <span class="text-body-2 text-medium-emphasis ml-2 d-none d-sm-inline">
+          {{ t('app.tagline') }}
         </span>
       </v-app-bar-title>
-      <v-btn variant="text" prepend-icon="mdi-refresh" @click="refresh">刷新</v-btn>
+      <LocaleSwitch />
+      <!-- 小屏（手机）切换为 Vuetify 原生图标按钮（正方形、图标居中）；
+           注意 icon 属性仅在无默认插槽时才渲染图标，文字须走 text 属性 -->
+      <v-btn
+        variant="text"
+        :icon="isSmall ? 'mdi-refresh' : undefined"
+        :prepend-icon="isSmall ? undefined : 'mdi-refresh'"
+        :text="isSmall ? undefined : t('common.refresh')"
+        :aria-label="t('common.refresh')"
+        @click="refresh"
+      />
     </v-app-bar>
 
     <v-navigation-drawer
@@ -565,7 +635,6 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
         <SettingsView
           v-else-if="currentView === 'settings'"
           :current-user="currentUser"
-          @exported="notifyExported"
           @imported="onImported"
           @logout="onLogout"
           @error="notify"
@@ -589,7 +658,7 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
           @empty="onEmptyTrash"
         />
         <MCPView v-else-if="currentView === 'mcp'" :current-user="currentUser" @notify="notify" />
-        <PromptView v-else @notify="notify" @error="notify" />
+        <PromptView v-else ref="promptView" @notify="notify" @error="notify" />
       </v-container>
     </v-main>
 
@@ -625,10 +694,15 @@ onBeforeUnmount(() => window.removeEventListener('contextmenu', onGlobalContextM
 </template>
 
 <style scoped>
+/* 标题内容 flex 垂直居中：logo 按 inline 基线对齐会随行高偏移数像素，
+   与右侧按钮图标不在同一水平线（Vuetify 4 的内容层为 __placeholder） */
+:deep(.v-toolbar-title__placeholder) {
+  display: flex;
+  align-items: center;
+}
 .app-logo {
   width: 24px;
   height: 24px;
   margin-right: 8px;
-  vertical-align: text-bottom;
 }
 </style>

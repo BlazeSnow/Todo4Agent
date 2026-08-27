@@ -8,16 +8,18 @@
 | 层次    | 技术           | 说明                                           |
 | ------- | -------------- | ---------------------------------------------- |
 | 桌面壳  | Tauri 2        | 跨平台桌面应用，含系统托盘（tray-icon）        |
-| 后端    | Rust（stable） | Tauri 逻辑、SQLite 数据层、MCP Server          |
+| 后端    | Rust（MSRV 1.85.1） | Tauri 逻辑、SQLite 数据层、MCP Server     |
 | 前端    | Vue 3 + Vite   | 桌面与 WebUI 共用同一套前端                    |
 | UI 组件 | Vuetify        | 主题跟随系统深浅色（`defaultTheme: 'system'`） |
+| 多语言  | vue-i18n（前端）/ fluent-i18n（后端） | 简体中文 / English，缺失翻译回落中文 |
+| 编辑器  | CodeMirror 6   | 提示词页 Markdown 编辑器（动态加载，不增大首屏） |
 | 数据库  | SQLite（本地） | rusqlite 直接访问（bundled，无需单独安装）     |
 | 协议    | MCP（stdio）   | 供 Agent 连接操作任务清单，环境变量凭据认证    |
 
 ## 2. 开发环境
 
 - Node.js ≥ 20、pnpm（或 npm）
-- Rust stable（建议 1.77+），Windows 需安装 Microsoft C++ Build Tools
+- Rust stable（MSRV 1.85.1+，fluent-i18n 依赖要求），Windows 需安装 Microsoft C++ Build Tools
 - Tauri CLI 2.x：`pnpm add -D @tauri-apps/cli`，命令为 `pnpm tauri ...`
 - SQLite 不需要单独安装（桌面端由依赖内置）
 
@@ -48,20 +50,26 @@
 ```
 Todo4Agent/
 ├── src/                    # Vue 3 前端（桌面与 WebUI 共用）
-│   ├── api.ts              # 后端 HTTP API 封装
+│   ├── api.ts              # 后端 HTTP API 封装（请求带 Accept-Language）
 │   ├── types.ts
-│   ├── main.ts             # Vuetify 初始化（主题跟随系统深浅色）
-│   ├── App.vue             # 布局、认证门控、全局右键菜单兜底
-│   └── components/         # 分组/任务/登录/设置/MCP/回收站视图、
-│                           # 各对话框、ContextMenu（自定义右键菜单）
-├── public/                 # 静态资源：icon.svg（WebUI favicon 与顶栏 logo）
+│   ├── i18n/               # 前端多语言（index.ts 初始化 + zh-CN / en-US 文案）
+│   ├── main.ts             # Vuetify 初始化（主题跟随系统深浅色、语言、代码字体）
+│   ├── App.vue             # 布局、认证门控、路径路由、全局右键菜单兜底
+│   └── components/         # 分组/任务/归档/提示词/登录/设置/MCP/回收站视图、
+│                           # 各对话框、ContextMenu（自定义右键菜单）、
+│                           # LocaleSwitch（语言切换）、InfoTip（ⓘ 悬停说明）、
+│                           # ConfirmDialog（确认对话框）、
+│                           # ArchiveTaskCard（归档页专用扁平任务卡片）
+├── public/                 # 静态资源：favicon.ico（WebUI favicon 与顶栏 logo）
 ├── src-tauri/              # Rust 后端（Tauri 2）
 │   ├── src/
 │   │   ├── main.rs         # 入口：tauri 桌面（含系统托盘、单实例）/ serve / mcp / help / version 模式
 │   │   ├── auth.rs         # 密码盐与哈希
-│   │   ├── api/            # axum HTTP API（认证、分组、任务、回收站、设置）
+│   │   ├── lang/           # 后端多语言：Lang 解析与 Fluent 查询（HTTP / MCP 共用）
+│   │   ├── api/            # axum HTTP API（认证、分组、任务、回收站、设置、应用重启）
 │   │   ├── db/             # SQLite 数据层（多用户、会话、导出）
 │   │   └── mcp/            # MCP Server（stdio，环境变量认证）
+│   ├── locales/            # 后端 Fluent 语言包（zh-CN / en-US 的 main.ftl，编译期内嵌）
 │   ├── capabilities/       # Tauri 权限配置
 │   └── tauri.conf.json     # 打包配置（Windows 安装包中文化）
 ├── ci/                     # 发布辅助脚本（版本一致性检查、Linux 依赖）
@@ -91,6 +99,11 @@ Todo4Agent/
 WebUI 与桌面端必须共享同一套功能与数据，禁止出现两套业务逻辑。后端 HTTP 服务固定监听
 3000 端口（被占用时顺延至 3010），生产环境 WebUI 即该端口；开发环境 Vite 监听 3001，
 将 `/api` 代理到后端。桌面端窗口在开发模式加载 Vite（3001），生产模式加载后端 WebUI（3000）。
+
+前端页面由路径标识（App.vue 内实现，无路由库）：`/group/{id}` 为清单组，`/archive`、
+`/trash`、`/mcp`、`/prompt`、`/settings` 为对应页面，其余路径回退默认视图；视图切换
+`pushState` 写入地址栏，刷新 / 前进 / 后退按路径恢复。前端路径不带 `/api` 前缀，与
+`/api/*` 接口（axum 优先匹配）互不影响；未命中的静态路径由后端回退 index.html（SPA）。
 
 ## 6. 数据库设计（草案）
 
@@ -136,6 +149,11 @@ CREATE TABLE tasks (
 
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
+CREATE TABLE prompts (
+  user_id    INTEGER PRIMARY KEY,  -- Agent 提示词（协作规范），按用户隔离
+  content    TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 ```
 
 说明：
@@ -184,6 +202,8 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
 
 - 通过 `TODO4AGENT_USERNAME` / `TODO4AGENT_PASSWORD` 指定真实用户凭据，启动时校验，
   缺失任一或校验失败将以非零码退出（凭据必填；首次运行数据库会自动创建初始账号 admin）。
+- 消息语言：按 Agent 客户端 initialize 请求的 `locale` 返回中文 / 英文；
+  可用环境变量 `TODO4AGENT_LANG`（`zh` / `en`）强制指定，均未提供时默认中文。
 - 客户端配置示例（ZCode / Claude Desktop 通用格式）：
 
 ```json
@@ -203,7 +223,8 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
 - 清单锁定（groups.locked 列，按分组）：锁定分组的 MCP 写操作被拒绝（该组任务的增删改、
   移入该组、改名/删除该组、导入文档含同名分组），读取与界面编辑不受影响；界面在侧边栏
   分组 ⋮ 菜单 / 右键菜单切换（`PATCH /api/groups/{id}` 的 `locked`）。
-- MCP Server 与桌面端访问同一个 SQLite 数据库文件，写入后界面应能立即反映变化（界面刷新按钮会重载任务列表）。
+  系统分组「无分组」不可锁定、改名、删除（承载删除分组后任务的兜底迁移）。
+- MCP Server 与桌面端访问同一个 SQLite 数据库文件，写入后界面应能立即反映变化（界面刷新按钮会重载任务列表与提示词）。
 - 新增工具需同步更新使用说明（README 或 docs）。
 - 所有工具必须返回结构化 JSON，错误信息要能让 Agent 直接理解并处理。
 
@@ -234,3 +255,6 @@ CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL);
 10. 自定义右键菜单（任务/分组快捷操作），刷新同步 MCP 等外部修改。
 11. 适配系统深色模式（跟随系统，含任务列表等自写组件）。
 12. WebUI 使用软件图标（favicon 与顶栏 logo），Windows 安装包中文化。
+13. 多语言（简体中文 / English）：界面文案、后端 HTTP / MCP 消息、错误提示全量双语，
+    前端 vue-i18n + 后端 Fluent 语言包，缺失翻译回落中文。
+14. 前端路径路由：当前清单组与页面写入地址栏，刷新 / 直达链接 / 前进后退保持视图。

@@ -38,6 +38,7 @@ pub struct AuthLoginInput {
 
 pub async fn auth_login(
     State(st): State<SharedState>,
+    lang: Lang,
     Json(body): Json<AuthLoginInput>,
 ) -> ApiResult {
     let c = st.db.lock().unwrap();
@@ -48,34 +49,35 @@ pub async fn auth_login(
                 "user_id": user.id,
                 "username": user.username
             })),
-            Err(e) => internal(e),
+            Err(e) => internal(lang, e),
         },
-        Ok(None) => err(StatusCode::UNAUTHORIZED, "用户名或密码错误"),
-        Err(e) => internal(e),
+        Ok(None) => err(StatusCode::UNAUTHORIZED, &tr(lang, "invalid-credentials")),
+        Err(e) => internal(lang, e),
     }
 }
 
 /// 注册新用户；新用户拥有独立数据空间
 pub async fn auth_register(
     State(st): State<SharedState>,
+    lang: Lang,
     Json(body): Json<AuthLoginInput>,
 ) -> ApiResult {
     let username = body.username.trim();
     if username.is_empty() {
-        return err(StatusCode::BAD_REQUEST, "用户名不能为空");
+        return err(StatusCode::BAD_REQUEST, &tr(lang, "username-empty"));
     }
     if body.password.len() < 4 {
-        return err(StatusCode::BAD_REQUEST, "密码至少 4 位");
+        return err(StatusCode::BAD_REQUEST, &tr(lang, "password-too-short"));
     }
     let c = st.db.lock().unwrap();
     if !db::get_allow_register(&c).unwrap_or(true) {
-        return err(StatusCode::FORBIDDEN, "注册已关闭");
+        return err(StatusCode::FORBIDDEN, &tr(lang, "registration-disabled"));
     }
     match db::create_user(&c, username, &body.password) {
         Ok(user) => {
             // 新用户自带系统分组「无分组」（分组被删除时其任务的去处）
             if let Err(e) = db::ensure_no_group(&c, user.id) {
-                return internal(e);
+                return internal(lang, e);
             }
             match db::issue_session(&c, user.id) {
                 Ok(token) => ok_json(json!({
@@ -83,11 +85,13 @@ pub async fn auth_register(
                     "user_id": user.id,
                     "username": user.username
                 })),
-                Err(e) => internal(e),
+                Err(e) => internal(lang, e),
             }
         }
-        Err(e) if db::is_unique_violation(&e) => err(StatusCode::CONFLICT, "用户名已存在"),
-        Err(e) => internal(e),
+        Err(e) if db::is_unique_violation(&e) => {
+            err(StatusCode::CONFLICT, &tr(lang, "username-taken"))
+        }
+        Err(e) => internal(lang, e),
     }
 }
 
@@ -110,12 +114,13 @@ pub struct PasswordInput {
 pub async fn auth_password(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
+    lang: Lang,
     headers: HeaderMap,
     Json(body): Json<PasswordInput>,
 ) -> ApiResult {
     let uid = cur.0;
     if body.new_password.len() < 4 {
-        return err(StatusCode::BAD_REQUEST, "新密码至少 4 位");
+        return err(StatusCode::BAD_REQUEST, &tr(lang, "new-password-too-short"));
     }
     let c = st.db.lock().unwrap();
     match db::change_user_password(&c, uid, &body.old_password, &body.new_password) {
@@ -124,7 +129,7 @@ pub async fn auth_password(
             let _ = db::delete_user_sessions(&c, uid, keep.as_deref());
             ok_json(json!({ "ok": true }))
         }
-        Ok(false) => err(StatusCode::BAD_REQUEST, "原密码错误"),
-        Err(e) => internal(e),
+        Ok(false) => err(StatusCode::BAD_REQUEST, &tr(lang, "wrong-password")),
+        Err(e) => internal(lang, e),
     }
 }

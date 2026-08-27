@@ -97,6 +97,20 @@
       <div class="splash-spinner"></div>
     </div>
     <div id="app"></div>
+    <script>
+      // 开屏文案跟随语言（Vue 挂载前，检测逻辑与 src/i18n 一致）
+      ;(function () {
+        var saved = null
+        try {
+          saved = localStorage.getItem('todo4agent-lang')
+        } catch (e) {}
+        var zh =
+          saved === 'zh-CN' || (!saved && String(navigator.language || '').toLowerCase().indexOf('zh') === 0)
+        document.documentElement.lang = zh ? 'zh-CN' : 'en-US'
+        var el = document.querySelector('.splash-sub')
+        if (el) el.textContent = zh ? '为 Agent 设计的 MCP 任务清单' : 'MCP task list designed for Agents'
+      })()
+    </script>
     <script type="module" src="/src/main.ts"></script>
     <script>
       // 兜底：应用挂载异常时也最终淡出开屏，避免永久卡在启动画面

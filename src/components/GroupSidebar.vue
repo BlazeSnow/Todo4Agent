@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { NO_GROUP_NAME, type Group } from '../types'
 import ContextMenu, { type ContextMenuItem } from './ContextMenu.vue'
 
@@ -24,6 +25,11 @@ const emit = defineEmits<{
   (e: 'trash'): void
   (e: 'reorder', groupIds: number[]): void
 }>()
+
+const { t } = useI18n()
+
+/** 分组显示名：系统分组「无分组」按界面语言显示，其余为存储名 */
+const displayName = (g: Group) => (g.name === NO_GROUP_NAME ? t('groups.noGroup') : g.name)
 
 // ---------- 上移 / 下移 ----------
 
@@ -56,32 +62,42 @@ function openGroupCtx(group: Group, e: MouseEvent) {
     y: e.clientY,
     items: [
       {
-        label: '上移',
+        label: t('common.moveUp'),
         icon: 'mdi-arrow-up',
         disabled: !canMoveGroup(group, -1),
         action: () => moveGroup(group, -1),
       },
       {
-        label: '下移',
+        label: t('common.moveDown'),
         icon: 'mdi-arrow-down',
         disabled: !canMoveGroup(group, 1),
         action: () => moveGroup(group, 1),
       },
       { divider: true },
-      // 系统分组「无分组」承载被删分组的任务，不可编辑/删除
-      ...(group.name === NO_GROUP_NAME
-        ? []
-        : [{ label: '编辑分组', icon: 'mdi-pencil', action: () => emit('rename', group) }]),
-      {
-        label: group.locked ? '解锁清单' : '锁定清单',
-        icon: group.locked ? 'mdi-lock-open' : 'mdi-lock',
-        action: () => emit('toggle-lock', group),
-      },
+      // 系统分组「无分组」承载被删分组的任务，不可编辑/删除，也不可锁定（兜底去处须始终可编辑）
       ...(group.name === NO_GROUP_NAME
         ? []
         : [
             {
-              label: '删除',
+              label: t('sidebar.editGroup'),
+              icon: 'mdi-pencil',
+              action: () => emit('rename', group),
+            },
+          ]),
+      ...(group.name === NO_GROUP_NAME
+        ? []
+        : [
+            {
+              label: group.locked ? t('sidebar.unlock') : t('sidebar.lock'),
+              icon: group.locked ? 'mdi-lock-open' : 'mdi-lock',
+              action: () => emit('toggle-lock', group),
+            },
+          ]),
+      ...(group.name === NO_GROUP_NAME
+        ? []
+        : [
+            {
+              label: t('common.delete'),
               icon: 'mdi-delete',
               color: 'error',
               action: () => emit('delete', group),
@@ -94,13 +110,13 @@ function openGroupCtx(group: Group, e: MouseEvent) {
 
 <template>
   <v-list nav density="comfortable">
-    <v-list-subheader>任务分组</v-list-subheader>
+    <v-list-subheader>{{ t('sidebar.groups') }}</v-list-subheader>
 
     <v-list-item
       v-for="group in groups"
       :key="group.id"
       :active="activeView === 'tasks' && selectedId === group.id"
-      :title="group.name"
+      :title="displayName(group)"
       @click="$emit('select', group.id)"
       @contextmenu.stop="openGroupCtx(group, $event)"
     >
@@ -121,13 +137,13 @@ function openGroupCtx(group: Group, e: MouseEvent) {
           <v-list density="compact">
             <v-list-item
               prepend-icon="mdi-arrow-up"
-              title="上移"
+              :title="t('common.moveUp')"
               :disabled="!canMoveGroup(group, -1)"
               @click="moveGroup(group, -1)"
             />
             <v-list-item
               prepend-icon="mdi-arrow-down"
-              title="下移"
+              :title="t('common.moveDown')"
               :disabled="!canMoveGroup(group, 1)"
               @click="moveGroup(group, 1)"
             />
@@ -135,20 +151,21 @@ function openGroupCtx(group: Group, e: MouseEvent) {
             <v-list-item
               v-if="group.name !== NO_GROUP_NAME"
               prepend-icon="mdi-pencil"
-              title="编辑分组"
-              subtitle="名称与描述"
+              :title="t('sidebar.editGroup')"
+              :subtitle="t('sidebar.editGroupSubtitle')"
               @click="$emit('rename', group)"
             />
             <v-list-item
+              v-if="group.name !== NO_GROUP_NAME"
               :prepend-icon="group.locked ? 'mdi-lock-open' : 'mdi-lock'"
-              :title="group.locked ? '解锁清单' : '锁定清单'"
-              :subtitle="group.locked ? 'Agent 当前无法编辑' : '锁定后仅自己可编辑'"
+              :title="group.locked ? t('sidebar.unlock') : t('sidebar.lock')"
+              :subtitle="group.locked ? t('sidebar.lockedHint') : t('sidebar.lockHint')"
               @click="$emit('toggle-lock', group)"
             />
             <v-list-item
               v-if="group.name !== NO_GROUP_NAME"
               prepend-icon="mdi-delete"
-              title="删除"
+              :title="t('common.delete')"
               color="error"
               @click="$emit('delete', group)"
             />
@@ -157,44 +174,44 @@ function openGroupCtx(group: Group, e: MouseEvent) {
       </template>
     </v-list-item>
 
-    <v-list-item prepend-icon="mdi-plus" title="新增分组" @click="$emit('create')" />
+    <v-list-item prepend-icon="mdi-plus" :title="t('sidebar.addGroup')" @click="$emit('create')" />
 
     <v-list-item
       prepend-icon="mdi-archive-outline"
-      title="归档"
+      :title="t('sidebar.archive')"
       :active="activeView === 'archive'"
       @click="$emit('archive')"
     />
 
     <v-list-item
       prepend-icon="mdi-trash-can-outline"
-      title="回收站"
+      :title="t('sidebar.trash')"
       :active="activeView === 'trash'"
       @click="$emit('trash')"
     />
 
     <v-divider class="my-2" />
 
-    <v-list-subheader>更多</v-list-subheader>
+    <v-list-subheader>{{ t('sidebar.more') }}</v-list-subheader>
     <v-list-item
       prepend-icon="mdi-connection"
-      title="Agent 接入（MCP）"
-      subtitle="点击查看连接说明"
+      :title="t('sidebar.mcp')"
+      :subtitle="t('sidebar.mcpSubtitle')"
       :active="activeView === 'mcp'"
       @click="$emit('mcp')"
     />
 
     <v-list-item
       prepend-icon="mdi-script-text-outline"
-      title="提示词"
-      subtitle="Agent 协作规范"
+      :title="t('sidebar.prompt')"
+      :subtitle="t('sidebar.promptSubtitle')"
       :active="activeView === 'prompt'"
       @click="$emit('prompt')"
     />
 
     <v-list-item
       prepend-icon="mdi-cog-outline"
-      title="设置"
+      :title="t('sidebar.settings')"
       :active="activeView === 'settings'"
       @click="$emit('settings')"
     />

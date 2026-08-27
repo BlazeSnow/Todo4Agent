@@ -14,6 +14,7 @@ use crate::db;
 pub async fn get_prompt(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
+    lang: Lang,
 ) -> ApiResult {
     let c = st.db.lock().unwrap();
     match db::get_custom_prompt(&c, cur.0) {
@@ -27,7 +28,7 @@ pub async fn get_prompt(
             "is_default": true,
             "updated_at": null
         })),
-        Err(e) => internal(e),
+        Err(e) => internal(lang, e),
     }
 }
 
@@ -41,6 +42,7 @@ pub struct PromptInput {
 pub async fn put_prompt(
     State(st): State<SharedState>,
     Extension(cur): Extension<CurrentUser>,
+    lang: Lang,
     Json(body): Json<PromptInput>,
 ) -> ApiResult {
     let c = st.db.lock().unwrap();
@@ -56,6 +58,6 @@ pub async fn put_prompt(
             "updated_at": updated_at
         })),
         // set_prompt 的两个返回形状已穷尽
-        _ => err(StatusCode::INTERNAL_SERVER_ERROR, "保存提示词结果异常"),
+        _ => err(StatusCode::INTERNAL_SERVER_ERROR, &tr(lang, "prompt-save-error")),
     }
 }

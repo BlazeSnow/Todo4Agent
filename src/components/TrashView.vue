@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import type { Group, Task } from '../types'
+import { NO_GROUP_NAME } from '../types'
+import { dateLocale } from '../i18n'
 
 defineProps<{
   /** 回收站中的分组 */
@@ -16,22 +19,25 @@ defineEmits<{
   (e: 'empty'): void
 }>()
 
+const { t } = useI18n()
+
 function formatTime(iso: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
-  return d.toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
+  return d.toLocaleString(dateLocale.value, { dateStyle: 'short', timeStyle: 'short' })
 }
 
 /** 截止时间格式与普通清单一致（task-card 配套展示辅助） */
 function formatDue(iso: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
-  return d.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+  return d.toLocaleString(dateLocale.value, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function groupNameOf(groupId: number, activeGroups: Group[]): string {
   const g = activeGroups.find((x) => x.id === groupId)
-  return g ? g.name : '（分组已删除）'
+  if (!g) return t('groups.groupDeleted')
+  return g.name === NO_GROUP_NAME ? t('groups.noGroup') : g.name
 }
 
 /** 未完成且已过期（与普通清单的判定一致） */
@@ -46,7 +52,7 @@ function overdue(task: Task): boolean {
   <div>
     <div class="d-flex align-center mb-4">
       <v-icon icon="mdi-trash-can-outline" class="mr-2" />
-      <h2 class="text-h6">回收站</h2>
+      <h2 class="text-h6">{{ t('trash.title') }}</h2>
       <v-spacer />
       <v-btn
         v-if="groups.length > 0 || tasks.length > 0"
@@ -55,19 +61,19 @@ function overdue(task: Task): boolean {
         prepend-icon="mdi-delete-sweep-outline"
         @click="$emit('empty')"
       >
-        清空回收站
+        {{ t('trash.empty') }}
       </v-btn>
     </div>
 
     <v-empty
       v-if="groups.length === 0 && tasks.length === 0"
       icon="mdi-trash-can-outline"
-      title="回收站为空"
-      text="删除的任务和分组会在这里保留，可恢复或彻底删除"
+      :title="t('trash.emptyTitle')"
+      :text="t('trash.emptyHint')"
     />
 
     <template v-if="groups.length > 0">
-      <div class="text-subtitle-2 text-medium-emphasis mb-2">已删除的分组</div>
+      <div class="text-subtitle-2 text-medium-emphasis mb-2">{{ t('trash.deletedGroups') }}</div>
       <!-- 与任务卡片同一套样式（styles/task-card.css），左端为文件夹图标，
            右端为恢复/彻底删除，信息 pill 展示删除时间与任务去向提示 -->
       <div v-for="group in groups" :key="group.id" class="task-item">
@@ -78,11 +84,11 @@ function overdue(task: Task): boolean {
           <div class="task-pills">
             <span class="task-pill">
               <i class="mdi mdi-trash-can-outline"></i>
-              删除于 {{ formatTime(group.deleted_at!) }}
+              {{ t('trash.deletedAt', { time: formatTime(group.deleted_at!) }) }}
             </span>
             <span class="task-pill">
               <i class="mdi mdi-folder-move-outline"></i>
-              组内任务已移入「无分组」
+              {{ t('trash.tasksMovedToNoGroup') }}
             </span>
           </div>
         </div>
@@ -91,7 +97,7 @@ function overdue(task: Task): boolean {
             icon="mdi-restore"
             size="small"
             variant="text"
-            title="恢复分组"
+            :title="t('trash.restoreGroup')"
             @click="$emit('restore', 'group', group.id)"
           />
           <v-btn
@@ -99,7 +105,7 @@ function overdue(task: Task): boolean {
             size="small"
             variant="text"
             color="error"
-            title="彻底删除分组"
+            :title="t('trash.purgeGroup')"
             @click="$emit('purge', 'group', group.id)"
           />
         </div>
@@ -107,7 +113,7 @@ function overdue(task: Task): boolean {
     </template>
 
     <template v-if="tasks.length > 0">
-      <div class="text-subtitle-2 text-medium-emphasis mb-2 mt-4">已删除的任务</div>
+      <div class="text-subtitle-2 text-medium-emphasis mb-2 mt-4">{{ t('trash.deletedTasks') }}</div>
       <!-- 与普通清单同一套卡片样式（styles/task-card.css），左端为状态图标、
            右端为恢复/彻底删除，信息 pill 展示所属分组、删除时间与截止时间 -->
       <div
@@ -134,7 +140,7 @@ function overdue(task: Task): boolean {
             </span>
             <span class="task-pill">
               <i class="mdi mdi-trash-can-outline"></i>
-              删除于 {{ formatTime(task.deleted_at!) }}
+              {{ t('trash.deletedAt', { time: formatTime(task.deleted_at!) }) }}
             </span>
             <span v-if="task.due_at" class="task-pill" :class="{ overdue: overdue(task) }">
               <i class="mdi mdi-calendar"></i>
@@ -147,7 +153,7 @@ function overdue(task: Task): boolean {
             icon="mdi-restore"
             size="small"
             variant="text"
-            title="恢复任务"
+            :title="t('trash.restoreTask')"
             @click="$emit('restore', 'task', task.id)"
           />
           <v-btn
@@ -155,7 +161,7 @@ function overdue(task: Task): boolean {
             size="small"
             variant="text"
             color="error"
-            title="彻底删除任务"
+            :title="t('trash.purgeTask')"
             @click="$emit('purge', 'task', task.id)"
           />
         </div>

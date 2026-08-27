@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
 use crate::db;
+use crate::lang::{tr, tr_a, Lang};
 
 pub(super) fn send(v: &Value) {
     let mut out = std::io::stdout().lock();
@@ -44,7 +45,7 @@ pub(super) fn tool_error(id: &Value, text: String) {
     );
 }
 
-fn handle(msg: &Value, conn: &Connection, user_id: i64) {
+fn handle(msg: &Value, conn: &Connection, user_id: i64, lang: &mut Lang) {
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
     let method = msg
         .get("method")
@@ -52,13 +53,16 @@ fn handle(msg: &Value, conn: &Connection, user_id: i64) {
         .unwrap_or_default();
 
     match method {
-        // 协议版本以客户端为准
+        // 协议版本以客户端为准；locale 记录为会话语言（工具描述与消息按其返回）
         "initialize" => {
             let proto = msg
                 .get("protocolVersion")
                 .and_then(Value::as_str)
                 .unwrap_or("2025-03-26")
                 .to_string();
+            if let Some(l) = Lang::parse_tag(msg.pointer("/params/locale").and_then(Value::as_str)) {
+                *lang = l;
+            }
             respond(
                 &id,
                 json!({
@@ -72,13 +76,13 @@ fn handle(msg: &Value, conn: &Connection, user_id: i64) {
         "notifications/initialized" | "notifications/cancelled" => {}
         "ping" => respond(&id, json!({})),
         "tools/list" => {
-            let list: Vec<Value> = tools::tools()
+            let list: Vec<Value> = tools::tools(*lang)
                 .iter()
-                .map(|t| {
+                .map(|tool| {
                     json!({
-                        "name": t.name,
-                        "description": t.description,
-                        "inputSchema": t.input_schema
+                        "name": tool.name,
+                        "description": tool.description,
+                        "inputSchema": tool.input_schema
                     })
                 })
                 .collect();
@@ -94,7 +98,7 @@ fn handle(msg: &Value, conn: &Connection, user_id: i64) {
                 .pointer("/params/arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            call_tool(&name, &args, conn, user_id, &id);
+            call_tool(&name, &args, conn, user_id, &id, *lang);
         }
         "" => respond_error(&id, -32601, "Method not found"),
         _ => respond_error(&id, -32601, "Method not found"),
@@ -107,27 +111,28 @@ fn resolve_mcp_user(
     conn: &Connection,
     username: Option<&str>,
     password: Option<&str>,
+    lang: Lang,
 ) -> Result<i64, String> {
     match (username, password) {
         (Some(u), Some(p)) => match db::verify_user(conn, u, p) {
             Ok(Some(user)) => Ok(user.id),
-            Ok(None) => Err(format!("用户名或密码错误：{u}")),
-            Err(e) => Err(format!("验证用户失败：{e}")),
+            Ok(None) => Err(tr_a(lang, "invalid-credentials-user", &[("user", u)])),
+            Err(e) => Err(tr_a(lang, "verify-user-failed", &[("err", &e.to_string())])),
         },
-        _ => Err(
-            "MCP 需要设置 TODO4AGENT_USERNAME 与 TODO4AGENT_PASSWORD 环境变量（运行 todo4agent help 查看接入说明）"
-                .to_string(),
-        ),
+        _ => Err(tr(lang, "mcp-env-credentials")),
     }
 }
 
 /// 主循环：逐行读取 stdin 的 JSON-RPC 消息并应答。
 /// 身份由环境变量 TODO4AGENT_USERNAME / TODO4AGENT_PASSWORD 指定并验证；
 /// 验证失败时向 stderr 输出原因并以非零码退出（MCP 客户端会显示启动失败）。
+/// 会话语言：TODO4AGENT_LANG 环境变量（zh / en）优先，
+/// 否则取 initialize 请求的 locale，未提供时默认中文。
 pub fn serve(conn: &Connection) {
     let env_user = std::env::var("TODO4AGENT_USERNAME").ok();
     let env_pass = std::env::var("TODO4AGENT_PASSWORD").ok();
-    let user_id = match resolve_mcp_user(conn, env_user.as_deref(), env_pass.as_deref()) {
+    let mut lang = Lang::from_env().unwrap_or_default();
+    let user_id = match resolve_mcp_user(conn, env_user.as_deref(), env_pass.as_deref(), lang) {
         Ok(uid) => uid,
         Err(msg) => {
             eprintln!("todo4agent-mcp: {msg}");
@@ -162,7 +167,7 @@ pub fn serve(conn: &Connection) {
                 continue;
             }
         };
-        handle(&msg, conn, user_id);
+        handle(&msg, conn, user_id, &mut lang);
     }
 }
 #[cfg(test)]
@@ -179,24 +184,33 @@ mod tests {
     fn defaults_and_credentials() {
         let c = test_conn();
         // 初始 admin 用户自动创建，默认密码可登录
-        let uid = resolve_mcp_user(&c, Some("admin"), Some("admin123")).unwrap();
+        let uid = resolve_mcp_user(&c, Some("admin"), Some("admin123"), Lang::Zh).unwrap();
         assert!(uid > 0);
         // 缺任一凭据拒绝
-        assert!(resolve_mcp_user(&c, None, None).is_err());
-        assert!(resolve_mcp_user(&c, Some("x"), None).is_err());
+        assert!(resolve_mcp_user(&c, None, None, Lang::Zh).is_err());
+        assert!(resolve_mcp_user(&c, Some("x"), None, Lang::Zh).is_err());
         // 错误密码
-        assert!(resolve_mcp_user(&c, Some("admin"), Some("wrong")).is_err());
+        assert!(resolve_mcp_user(&c, Some("admin"), Some("wrong"), Lang::Zh).is_err());
     }
 
     #[test]
     fn credentials_verify_and_bind() {
         let c = test_conn();
         db::create_user(&c, "alice", "pass1234").unwrap();
-        let uid = resolve_mcp_user(&c, Some("alice"), Some("pass1234")).unwrap();
+        let uid = resolve_mcp_user(&c, Some("alice"), Some("pass1234"), Lang::Zh).unwrap();
         assert!(uid > 0);
-        assert!(resolve_mcp_user(&c, Some("alice"), Some("wrong")).is_err());
-        assert!(resolve_mcp_user(&c, Some("nobody"), Some("pass1234")).is_err());
-        assert!(resolve_mcp_user(&c, None, None).is_err());
-        assert!(resolve_mcp_user(&c, Some("alice"), None).is_err());
+        assert!(resolve_mcp_user(&c, Some("alice"), Some("wrong"), Lang::Zh).is_err());
+        assert!(resolve_mcp_user(&c, Some("nobody"), Some("pass1234"), Lang::Zh).is_err());
+        assert!(resolve_mcp_user(&c, None, None, Lang::Zh).is_err());
+        assert!(resolve_mcp_user(&c, Some("alice"), None, Lang::Zh).is_err());
+    }
+
+    #[test]
+    fn credentials_error_language() {
+        let c = test_conn();
+        let zh = resolve_mcp_user(&c, Some("admin"), Some("wrong"), Lang::Zh).unwrap_err();
+        assert!(zh.contains("用户名或密码错误"));
+        let en = resolve_mcp_user(&c, Some("admin"), Some("wrong"), Lang::En).unwrap_err();
+        assert!(en.contains("Invalid username or password"));
     }
 }
